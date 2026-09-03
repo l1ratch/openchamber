@@ -186,7 +186,11 @@ mock.module("../selection-store", () => ({
   },
 }))
 
+// Spread the real module so the stub stays a patch: anything else importing
+// runtime-switch in this process still gets its remaining exports.
+const runtimeSwitchModule = await import("@/lib/runtime-switch")
 mock.module("@/lib/runtime-switch", () => ({
+  ...runtimeSwitchModule,
   getRuntimeApiBaseUrl: () => "",
   getRuntimeKey: () => "test-runtime",
   initializeRuntimeEndpoint: () => undefined,

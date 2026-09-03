@@ -1859,7 +1859,7 @@ window.addEventListener('openchamber:vscode-notification-event', (event) => {
 // Listen for settings sync command from extension (broadcast to all VS Code webviews)
 onCommand('settingsSynced', () => {
   import('@openchamber/ui/lib/persistence').then(({ syncDesktopSettings }) => {
-    void syncDesktopSettings();
+    void syncDesktopSettings({ adoptTheme: false });
   });
 });
 

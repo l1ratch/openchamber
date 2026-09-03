@@ -13,6 +13,8 @@ export const settingsDict = {
   'settings.providers.page.openCodeGo.delete': 'Sil',
   'settings.providers.page.quotaCredentials.saved': '{provider} kimlik bilgileri kaydedildi.',
   'settings.providers.page.quotaCredentials.accessToken': 'Erişim token\'ı',
+  'settings.providers.page.quotaCredentials.usageToken': 'Kullanım API token\'ı',
+  'settings.providers.page.quotaCredentials.exeDevTokenInstructions': 'Bu komutu terminalde çalıştırın, ardından token\'ı aşağıya yapıştırın. Yalnızca LLM kredi kullanımını okuyabilir ve 30 gün sonra sona erer.',
   'settings.providers.page.quotaCredentials.refreshToken': 'Yenileme token\'ı',
   'settings.providers.page.quotaCredentials.tokenPlaceholder': 'Token\'ı yapıştır',
   'settings.providers.page.openCodeGo.saveFailed': 'OpenCode Go kimlik bilgileri doğrulanamadı.',
