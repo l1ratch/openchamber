@@ -22,7 +22,7 @@ mock.module('@/hooks/useEffectiveDirectory', () => ({
   useEffectiveDirectory: () => effectiveDirectory,
 }));
 
-const { useWorkStatusVisibility, WORK_STATUS_REQUIRED_ROW_WIDTH: REQUIRED } = await import(
+const { useWorkStatusVisibility, WORK_STATUS_REQUIRED_CHAT_WIDTH: REQUIRED } = await import(
   './useWorkStatusVisibility'
 );
 
@@ -99,11 +99,10 @@ type Args = { isMobile: boolean; isVSCode: boolean };
 const renderVisibility = (args: Args, rowWidth: number) => {
   const dom = installMinimalDom();
   const root: Root = createRoot(dom.container);
-  // `closest` returns null here, so the hook falls back to the row itself —
-  // the fallback path is what these cases exercise.
+  // No message column is present here, so the hook falls back to the row.
   const rowNode = {
     getBoundingClientRect: () => ({ width: rowWidth }),
-    closest: () => null,
+    querySelector: () => null,
   } as unknown as HTMLDivElement;
   const result = { visible: false, fits: false };
 
@@ -152,25 +151,24 @@ describe('useWorkStatusVisibility', () => {
     teardown();
   });
 
-  test('keeps the overlay visible when the row is narrow', () => {
+  test('hides the overlay when the chat column is narrow', () => {
     const { result, teardown } = renderVisibility(
       { isMobile: false, isVSCode: false },
       REQUIRED - 1,
     );
-    expect(result.visible).toBe(true);
+    expect(result.visible).toBe(false);
     teardown();
   });
 
-  test('prefers the marked chat area over the row it was handed', () => {
-    // The row is what the context panel squeezes, over an animation. Measuring
-    // it made the panel reappear only once that number caught up, so the chat
-    // widened first and narrowed again afterwards.
+  test('measures the chat column instead of the outer chat area', () => {
+    // The overlay must protect the transcript column, not the wider container
+    // that also holds ContextPanel.
     const dom = installMinimalDom();
     const root: Root = createRoot(dom.container);
-    const chatArea = { getBoundingClientRect: () => ({ width: REQUIRED }) };
+    const messageColumn = { getBoundingClientRect: () => ({ width: REQUIRED }) };
     const rowNode = {
       getBoundingClientRect: () => ({ width: 0 }),
-      closest: () => chatArea,
+      querySelector: () => messageColumn,
     } as unknown as HTMLDivElement;
     const result = { visible: false };
 
@@ -188,18 +186,14 @@ describe('useWorkStatusVisibility', () => {
     };
 
     act(() => { root.render(React.createElement(Probe)); });
-    expect(observed).toEqual([chatArea]);
+    expect(observed).toEqual([messageColumn]);
     expect(result.visible).toBe(true);
 
     act(() => { root.unmount(); });
     dom.restore();
   });
 
-  test('measures a container the panel cannot resize, never the chat column', () => {
-    // The measured element must not depend on whether the panel is showing:
-    // otherwise hiding the panel widens it and re-shows the panel, forever.
-    // In the app this is the chat area (chat + context panel); here `closest`
-    // finds nothing, so the hook falls back to the row it was given.
+  test('measures the outer chat row when no message column is available', () => {
     const { rowNode, teardown } = renderVisibility(
       { isMobile: false, isVSCode: false },
       REQUIRED,
@@ -209,14 +203,14 @@ describe('useWorkStatusVisibility', () => {
     teardown();
   });
 
-  test('keeps the overlay visible across chat-area resizes', () => {
+  test('reacts to chat-column resizes across the threshold', () => {
     const { result, teardown } = renderVisibility(
       { isMobile: false, isVSCode: false },
       REQUIRED,
     );
     expect(result.visible).toBe(true);
     act(() => { notify?.([{ contentRect: { width: REQUIRED - 40 } }]); });
-    expect(result.visible).toBe(true);
+    expect(result.visible).toBe(false);
     act(() => { notify?.([{ contentRect: { width: REQUIRED + 200 } }]); });
     expect(result.visible).toBe(true);
     teardown();
@@ -270,7 +264,7 @@ describe('useWorkStatusVisibility', () => {
     const root: Root = createRoot(dom.container);
     const rowNode = {
       getBoundingClientRect: () => ({ width: REQUIRED }),
-      closest: () => null,
+      querySelector: () => null,
     } as unknown as HTMLDivElement;
     const result = { visible: false };
     let attach: (value: boolean) => void = () => undefined;
@@ -313,13 +307,13 @@ describe('useWorkStatusVisibility', () => {
     teardown();
   });
 
-  test('reports fit once the overlay host is measured, regardless of width', () => {
+  test('reports no fit when the chat column is too narrow', () => {
     const { result, teardown } = renderVisibility(
       { isMobile: false, isVSCode: false },
       REQUIRED - 1,
     );
-    expect(result.fits).toBe(true);
-    expect(result.visible).toBe(true);
+    expect(result.fits).toBe(false);
+    expect(result.visible).toBe(false);
     teardown();
   });
 
