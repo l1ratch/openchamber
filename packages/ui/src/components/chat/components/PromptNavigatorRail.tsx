@@ -26,11 +26,11 @@ const PREVIEW_MAX_CHARS = 160;
 // The whole gutter is one hover/click target: the cursor's vertical position
 // maps to the nearest tick, so tick density never demands pointer precision.
 // When the centered message column extends under the full-width gutter (narrow
-// windows), the hit zone shrinks so it can't swallow clicks on the right edge
+// windows), the hit zone shrinks so it can't swallow clicks on the left edge
 // of user bubbles (expand/collapse).
 const GUTTER_WIDTH_PX = 28;
 const GUTTER_NARROW_WIDTH_PX = 12;
-const GUTTER_RIGHT_OFFSET_PX = 6;
+const GUTTER_LEFT_OFFSET_PX = 6;
 // The rail shows at most a window of ticks; hovering the gutter edges
 // carousels the window through the rest of the prompts.
 const MAX_VISIBLE_TICKS = 30;
@@ -119,8 +119,8 @@ export function PromptNavigatorRail({
             }
             const containerRect = container.getBoundingClientRect();
             const columnRect = column.getBoundingClientRect();
-            const fullGutterLeft = containerRect.right - GUTTER_RIGHT_OFFSET_PX - GUTTER_WIDTH_PX;
-            setIsNarrowGutter(columnRect.right > fullGutterLeft);
+            const fullGutterRight = containerRect.left + GUTTER_LEFT_OFFSET_PX + GUTTER_WIDTH_PX;
+            setIsNarrowGutter(columnRect.left < fullGutterRight);
         };
         measure();
         const observer = new ResizeObserver(measure);
@@ -520,7 +520,7 @@ export function PromptNavigatorRail({
             aria-label={t('chat.promptNavigator.aria')}
             className="pointer-events-none absolute left-1.5 top-1/2 z-20 -translate-y-1/2"
         >
-            <div className="pointer-events-auto flex flex-col items-end">
+            <div className="pointer-events-auto flex flex-col items-start">
                 {canLoadEarlier ? (
                     <button
                         type="button"
