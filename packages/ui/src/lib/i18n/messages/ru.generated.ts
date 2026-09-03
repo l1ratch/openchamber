@@ -5660,7 +5660,7 @@ export const dict = {
   "mcpDropdown.toast.authorizeOpenFailed": "Не удалось открыть страницу авторизации",
   "mcpDropdown.toast.authorizeFailed": "Авторизация не удалась",
   "header.services.tooltip.currentInstance": "Текущий экземпляр: {current} ({toggle})",
-  "header.workStatusPanel.showOverlay": "Показывать рабочий статус в чате",
+  "sessions.sidebar.sessionDialogs.worktree.removingTitle": "Удаление рабочего дерева «{name}»…",
   "settings.mcp.page.connection.title": "Как добраться",
   "settings.mcp.page.connection.description": "Вставьте команду, которая его запускает, или ссылку на размещенный сервер.",
   "settings.mcp.page.registration.title": "Этому серверу нужно собственное приложение",
@@ -5679,8 +5679,4 @@ export const dict = {
   "settings.mcp.page.connection.hintCommand": "Работает на этой машине. Вставьте целую команду, и она будет разделена на один аргумент в каждой строке.",
   "settings.mcp.page.connection.hintLink": "Подключается к серверу, который находится на другом хосте. Вставьте его https-адрес.",
   "session.newWorktree.toast.fetchSourceFailed": "Не удалось получить изменения с удалённого репозитория. Рабочее дерево создано из локального состояния.",
-  "settings.behavior.page.section.worktrees": "Рабочие деревья",
-  "settings.behavior.page.worktreeFetchSource.enable": "Получать изменения с удалённого репозитория перед созданием рабочих деревьев",
-  "settings.behavior.page.worktreeFetchSource.enableAria": "Получать изменения с удалённого репозитория перед созданием рабочих деревьев",
-  "settings.behavior.page.worktreeFetchSource.info": "Новые рабочие деревья создаются из актуального состояния текущей ветки, полученного с удалённого репозитория, а не из локальной копии. Если удалённый репозиторий недоступен, используется локальное состояние.",
 } satisfies Record<I18nKey, string>;
