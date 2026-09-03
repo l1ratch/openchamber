@@ -2034,6 +2034,7 @@ export const dict: Record<I18nKey, string> = {
   "session.newWorktree.toast.sessionFromPr": "Сесію створено з PR",
   "session.newWorktree.toast.worktreeCreated": "Створено worktree",
   "session.newWorktree.toast.worktreeCreatedDescription": "{target} - завантаження у фоні",
+  "session.newWorktree.toast.fetchSourceFailed": "Не вдалося отримати з віддаленого — створено з локального стану",
   "session.githubIntegration.title": "Виберіть із GitHub",
   "session.githubIntegration.tabs.issues": "Issue",
   "session.githubIntegration.tabs.pullRequests": "PR",

@@ -2034,6 +2034,7 @@ export const dict: Record<I18nKey, string> = {
   "session.newWorktree.toast.sessionFromPr": "Sesión creada desde PR",
   "session.newWorktree.toast.worktreeCreated": "Worktree creado",
   "session.newWorktree.toast.worktreeCreatedDescription": "{target} - configurando en segundo plano",
+  "session.newWorktree.toast.fetchSourceFailed": "No se pudo obtener del remoto; se creó a partir del estado local",
   "session.githubIntegration.title": "Seleccionar desde GitHub",
   "session.githubIntegration.tabs.issues": "Issues",
   "session.githubIntegration.tabs.pullRequests": "PR",

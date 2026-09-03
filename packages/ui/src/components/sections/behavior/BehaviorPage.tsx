@@ -20,6 +20,7 @@ import {
 } from '@/lib/responseStyle';
 import type { DesktopSettings } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { noteDeferredRestartFromPayload, recordDeferredOpenCodeRestart } from '@/lib/opencode/deferredRestart';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import {
@@ -46,6 +47,7 @@ type ResponseStyleValue = ResponseStylePreset | 'custom';
 type BehaviorSettingsState = {
   prompt: string;
   optimizeSystemPrompt: boolean;
+  worktreeFetchSource: boolean;
   responseStyleEnabled: boolean;
   responseStylePreset: ResponseStyleValue;
   responseStyleCustomInstructions: string;
@@ -54,6 +56,7 @@ type BehaviorSettingsState = {
 const DEFAULT_BEHAVIOR_SETTINGS: BehaviorSettingsState = {
   prompt: '',
   optimizeSystemPrompt: false,
+  worktreeFetchSource: true,
   responseStyleEnabled: false,
   responseStylePreset: 'concise',
   responseStyleCustomInstructions: '',
@@ -103,8 +106,10 @@ const saveBehaviorSetting = async (settings: Partial<DesktopSettings>, fallbackE
 export const BehaviorPage: React.FC = () => {
   const { t } = useI18n();
   const isVSCode = useIsVSCodeRuntime();
+  const setSettingsWorktreeFetchSource = useConfigStore((state) => state.setSettingsWorktreeFetchSource);
   const [prompt, setPrompt] = React.useState('');
   const [optimizeSystemPrompt, setOptimizeSystemPrompt] = React.useState(false);
+  const [worktreeFetchSource, setWorktreeFetchSource] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.worktreeFetchSource);
   const [responseStyleEnabled, setResponseStyleEnabled] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.responseStyleEnabled);
   const [responseStylePreset, setResponseStylePreset] = React.useState<ResponseStyleValue>(DEFAULT_BEHAVIOR_SETTINGS.responseStylePreset);
   const [responseStyleCustomInstructions, setResponseStyleCustomInstructions] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.responseStyleCustomInstructions);
@@ -143,12 +148,16 @@ export const BehaviorPage: React.FC = () => {
           nextSettings = {
             ...nextSettings,
             optimizeSystemPrompt: data.optimizeSystemPrompt === true,
+            worktreeFetchSource: data.worktreeFetchSource !== false,
             responseStyleEnabled: data.responseStyleEnabled === true,
             responseStylePreset: sanitizeResponseStylePreset(data.responseStylePreset),
             responseStyleCustomInstructions: typeof data.responseStyleCustomInstructions === 'string'
               ? data.responseStyleCustomInstructions
               : '',
           };
+          if (typeof data.worktreeFetchSource === 'boolean') {
+            setSettingsWorktreeFetchSource(data.worktreeFetchSource);
+          }
           if (typeof data.globalBehaviorPrompt === 'string') {
             nextSettings = { ...nextSettings, prompt: data.globalBehaviorPrompt };
           }
@@ -164,6 +173,7 @@ export const BehaviorPage: React.FC = () => {
         setPrompt(nextSettings.prompt);
         setOptimizeSystemPrompt(nextSettings.optimizeSystemPrompt);
         setInitialOptimizeSystemPrompt(nextSettings.optimizeSystemPrompt);
+        setWorktreeFetchSource(nextSettings.worktreeFetchSource);
         setResponseStyleEnabled(nextSettings.responseStyleEnabled);
         setResponseStylePreset(nextSettings.responseStylePreset);
         setResponseStyleCustomInstructions(nextSettings.responseStyleCustomInstructions);
@@ -184,7 +194,7 @@ export const BehaviorPage: React.FC = () => {
 
     void load();
     return () => abort.abort();
-  }, []);
+  }, [setSettingsWorktreeFetchSource]);
 
   React.useEffect(() => {
     if (isLoading) return;
@@ -265,6 +275,21 @@ export const BehaviorPage: React.FC = () => {
     }
   };
 
+  const handleWorktreeFetchSourceChange = (enabled: boolean) => {
+    const previous = worktreeFetchSource;
+    setWorktreeFetchSource(enabled);
+    setSettingsWorktreeFetchSource(enabled);
+    void saveBehaviorSetting(
+      { worktreeFetchSource: enabled },
+      t('settings.behavior.page.toast.saveFailed'),
+    ).catch((error) => {
+      setWorktreeFetchSource(previous);
+      setSettingsWorktreeFetchSource(previous);
+      const message = error instanceof Error ? error.message : t('settings.behavior.page.toast.saveFailed');
+      toast.error(message);
+    });
+  };
+
   const handleSavePromptOptimization = async () => {
     setIsApplyingPromptOptimization(true);
     try {
@@ -317,6 +342,21 @@ export const BehaviorPage: React.FC = () => {
           </Button>
         </SettingsSection>
       )}
+
+      <SettingsSection
+        title={t('settings.behavior.page.section.worktrees')}
+        settingsItem="behavior.worktree-fetch-source"
+        contentClassName="space-y-3"
+      >
+        <SettingsCheckboxRow
+          checked={worktreeFetchSource}
+          onChange={handleWorktreeFetchSourceChange}
+          disabled={isLoading}
+          label={t('settings.behavior.page.worktreeFetchSource.enable')}
+          ariaLabel={t('settings.behavior.page.worktreeFetchSource.enableAria')}
+          info={t('settings.behavior.page.worktreeFetchSource.info')}
+        />
+      </SettingsSection>
 
       <SettingsSection
         title={t('settings.behavior.page.section.systemPrompt')}

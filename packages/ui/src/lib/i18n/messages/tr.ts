@@ -2016,6 +2016,7 @@ export const dict = {
   'session.newWorktree.toast.sessionFromPr': 'PR\'dan session oluşturuldu',
   'session.newWorktree.toast.worktreeCreated': 'Worktree oluşturuldu',
   'session.newWorktree.toast.worktreeCreatedDescription': '{target} - arka planda hazırlanıyor',
+  'session.newWorktree.toast.fetchSourceFailed': 'Uzak depodan fetch edilemedi — yerel durumdan oluşturuldu',
   'session.githubIntegration.title': 'GitHub\'dan seç',
   'session.githubIntegration.tabs.issues': 'Issue\'lar',
   'session.githubIntegration.tabs.pullRequests': 'Pull Request\'ler',
