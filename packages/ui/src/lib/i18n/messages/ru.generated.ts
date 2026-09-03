@@ -5678,4 +5678,9 @@ export const dict = {
   "settings.mcp.page.connection.kindLink": "Ссылка",
   "settings.mcp.page.connection.hintCommand": "Работает на этой машине. Вставьте целую команду, и она будет разделена на один аргумент в каждой строке.",
   "settings.mcp.page.connection.hintLink": "Подключается к серверу, который находится на другом хосте. Вставьте его https-адрес.",
+  "session.newWorktree.toast.fetchSourceFailed": "Не удалось получить изменения с удалённого репозитория. Рабочее дерево создано из локального состояния.",
+  "settings.behavior.page.section.worktrees": "Рабочие деревья",
+  "settings.behavior.page.worktreeFetchSource.enable": "Получать изменения с удалённого репозитория перед созданием рабочих деревьев",
+  "settings.behavior.page.worktreeFetchSource.enableAria": "Получать изменения с удалённого репозитория перед созданием рабочих деревьев",
+  "settings.behavior.page.worktreeFetchSource.info": "Новые рабочие деревья создаются из актуального состояния текущей ветки, полученного с удалённого репозитория, а не из локальной копии. Если удалённый репозиторий недоступен, используется локальное состояние.",
 } satisfies Record<I18nKey, string>;
