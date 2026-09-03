@@ -1,4 +1,6 @@
 import { substituteCommandVariables } from '@/lib/openchamberConfig';
+import { toast } from '@/components/ui';
+import { formatMessage, useI18nStore } from '@/lib/i18n';
 import type { WorktreeMetadata } from '@/types/worktree';
 import {
   deleteRemoteBranch,
@@ -57,6 +59,10 @@ const normalizePath = (value: string): string => {
   }
   return replaced.length > 1 ? replaced.replace(/\/+$/, '') : replaced;
 };
+
+/** The name the sidebar shows for a worktree, used in worktree-scoped toasts. */
+export const getWorktreeDisplayName = (worktree: WorktreeMetadata): string =>
+  worktree.branch || worktree.label || worktree.path;
 
 export const getLatestWorktreeMetadata = (metadata: WorktreeMetadata): WorktreeMetadata => {
   const target = normalizePath(metadata.path);
@@ -508,6 +514,11 @@ export async function createWorktree(project: ProjectRef, args: CreateWorktreeAr
   const payload = toCreatePayload(args, projectDirectory);
 
   const created = await git.worktree.create(projectDirectory, payload);
+  if (created?.sourceFetchFailed) {
+    toast.warning(
+      formatMessage(useI18nStore.getState().dictionary, 'session.newWorktree.toast.fetchSourceFailed'),
+    );
+  }
   const returnedName = typeof created?.name === 'string' ? created.name : '';
   const returnedBranch = typeof created?.branch === 'string' ? created.branch : '';
   const returnedPath = typeof created?.path === 'string' ? created.path : '';
