@@ -3,6 +3,7 @@ import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
 export const dict = {
+  'sessions.sidebar.projectAction.active': 'Projektaktion aktiv',
   ...settingsDict,
   ...linearIssuePickerI18n.de,
   ...linearPanelI18n.de,
@@ -608,6 +609,8 @@ export const dict = {
   'sessions.sidebar.sessionDialogs.worktree.attachedArchived': 'Angefügter Worktree archiviert.',
   'sessions.sidebar.sessionDialogs.worktree.attachedArchivedPlural': 'Angefügte Worktrees archiviert.',
   'sessions.sidebar.sessionDialogs.worktree.archivedAndRemoteRemoved': 'Archivierte Worktrees und entfernte Remote-Branches.',
+  'sessions.missingDirectory.movedToProject': 'Der Ordner dieser Sitzung existiert nicht mehr. Die Sitzung wurde nach {project} verschoben.',
+  'sessions.sidebar.group.worktreeMissing': 'Worktree-Ordner fehlt',
   'sessions.sidebar.sessionDialogs.worktree.label': 'Worktree',
   'sessions.sidebar.sessionDialogs.worktree.pathUnavailable': 'Worktree-Pfad nicht verfügbar.',
   'sessions.sidebar.sessionDialogs.worktree.uncommittedWarning': 'Nicht committete Änderungen werden verworfen.',
@@ -1444,7 +1447,7 @@ export const dict = {
   'chat.autoReview.reviewSessionLabel': 'Überprüfungssitzung',
   'chat.autoReview.actions.open': 'Öffnen',
   'chat.autoReview.actions.stop': 'Stoppen',
-  'chat.draftDirtyNotice.tooltip': 'Dieser Branch hat nicht committete Dateien.\nDie neue Session sieht sie. Ein Commit oder ein Worktree hält sie getrennt.',
+  'chat.draftDirtyNotice.tooltip': 'Du hast nicht committete Änderungen in diesem Branch.\nEine neue Session könnte mit ihnen in Konflikt geraten. Vielleicht möchtest du sie zuerst committen oder einen anderen Worktree verwenden.',
   'chat.draftDirtyNotice.indicatorAria': 'Nicht committete Änderungen in diesem Verzeichnis',
   'diffView.hunk.label': 'Stücke',
   'diffView.hunk.stage': 'Zu Staging hinzufügen',
@@ -2003,6 +2006,8 @@ export const dict = {
   'chat.queuedMessage.send': 'senden',
   'chat.queuedMessage.removeAria': 'Aus der Warteschlange entfernen',
   'chat.queuedMessage.reorderAria': 'Ziehen, um neu anzuordnen',
+  'chat.queuedMessage.toast.queueFailed': 'Die Nachricht konnte nicht in die Warteschlange gestellt werden. Sie ist wieder im Eingabefeld.',
+  'chat.queuedMessage.toast.takeFailed': 'Die Nachricht aus der Warteschlange konnte nicht geladen werden. Bitte erneut versuchen.',
   'chat.container.returnToParent.aria': 'Zurück zur übergeordneten Sitzung',
   'chat.container.returnToParent.titleNamed': 'Zurück zu: {title}',
   'chat.container.returnToParent.title': 'Zurück zur übergeordneten Sitzung',

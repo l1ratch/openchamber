@@ -3,6 +3,7 @@ import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
 export const dict = {
+  'sessions.sidebar.projectAction.active': 'Project action active',
   ...settingsDict,
   ...linearIssuePickerI18n.en,
   ...linearPanelI18n.en,
@@ -704,6 +705,8 @@ export const dict = {
   'sessions.sidebar.sessionDialogs.worktree.attachedArchived': 'Attached worktree archived.',
   'sessions.sidebar.sessionDialogs.worktree.attachedArchivedPlural': 'Attached worktrees archived.',
   'sessions.sidebar.sessionDialogs.worktree.archivedAndRemoteRemoved': 'Archived worktrees and removed remote branches.',
+  'sessions.missingDirectory.movedToProject': 'This session\'s folder no longer exists. The session was moved to {project}.',
+  'sessions.sidebar.group.worktreeMissing': 'Worktree folder is missing',
   'sessions.sidebar.sessionDialogs.worktree.label': 'Worktree',
   'sessions.sidebar.sessionDialogs.worktree.pathUnavailable': 'Worktree path unavailable.',
   'sessions.sidebar.sessionDialogs.worktree.uncommittedWarning': 'Uncommitted changes will be discarded.',
@@ -1641,7 +1644,7 @@ export const dict = {
   'chat.autoReview.reviewSessionLabel': 'Review session',
   'chat.autoReview.actions.open': 'Open',
   'chat.autoReview.actions.stop': 'Stop',
-  'chat.draftDirtyNotice.tooltip': 'This branch has uncommitted files.\nThe new session will see them. A commit or a worktree keeps them separate.',
+  'chat.draftDirtyNotice.tooltip': 'You have uncommitted changes on this branch.\nA new session could conflict with them. You may want to commit them first or use another worktree.',
   'chat.draftDirtyNotice.indicatorAria': 'Uncommitted changes in this directory',
   'diffView.hunk.label': 'Hunks',
   'diffView.hunk.stage': 'Stage',
@@ -2208,6 +2211,8 @@ export const dict = {
   'chat.queuedMessage.send': 'send',
   'chat.queuedMessage.removeAria': 'Remove from queue',
   'chat.queuedMessage.reorderAria': 'Drag to reorder',
+  'chat.queuedMessage.toast.queueFailed': 'Couldn\'t queue the message. It\'s back in the composer.',
+  'chat.queuedMessage.toast.takeFailed': 'Couldn\'t load the queued message. Please try again.',
   'chat.container.returnToParent.aria': 'Return to parent session',
   'chat.container.returnToParent.titleNamed': 'Return to: {title}',
   'chat.container.returnToParent.title': 'Return to parent session',

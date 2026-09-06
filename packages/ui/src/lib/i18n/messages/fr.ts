@@ -3,6 +3,7 @@ import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
 export const dict = {
+  'sessions.sidebar.projectAction.active': 'Action du projet en cours',
   ...settingsDict,
   ...linearIssuePickerI18n.fr,
   ...linearPanelI18n.fr,
@@ -533,6 +534,8 @@ export const dict = {
   'sessions.sidebar.sessionDialogs.worktree.attachedArchived': 'Worktree ci-joint archivé.',
   'sessions.sidebar.sessionDialogs.worktree.attachedArchivedPlural': 'Worktrees joints archivés.',
   'sessions.sidebar.sessionDialogs.worktree.archivedAndRemoteRemoved': 'Worktrees archivés et branches du dépôt distant supprimées.',
+  'sessions.missingDirectory.movedToProject': 'Le dossier de cette session n\'existe plus. La session a été déplacée vers {project}.',
+  'sessions.sidebar.group.worktreeMissing': 'Le dossier du worktree est introuvable',
   'sessions.sidebar.sessionDialogs.worktree.label': 'Worktree',
   'sessions.sidebar.sessionDialogs.worktree.pathUnavailable': 'Chemin du worktree indisponible.',
   'sessions.sidebar.sessionDialogs.worktree.uncommittedWarning': 'Les modifications non validées seront ignorées.',
@@ -1405,7 +1408,7 @@ export const dict = {
   'chat.autoReview.reviewSessionLabel': 'Session de revue',
   'chat.autoReview.actions.open': 'Ouvrir',
   'chat.autoReview.actions.stop': 'Arrêter',
-  'chat.draftDirtyNotice.tooltip': 'Cette branche a des fichiers non commités.\nLa nouvelle session les verra. Un commit ou un worktree les garde séparés.',
+  'chat.draftDirtyNotice.tooltip': 'Vous avez des modifications non commitées sur cette branche.\nUne nouvelle session pourrait entrer en conflit avec elles. Vous voudrez peut-être les commiter d’abord ou utiliser un autre worktree.',
   'chat.draftDirtyNotice.indicatorAria': 'Modifications non commitées dans ce répertoire',
   'diffView.hunk.label': 'Sections',
   'diffView.hunk.stage': 'Préparer',
@@ -1938,6 +1941,8 @@ export const dict = {
   'chat.queuedMessage.send': 'envoyer',
   'chat.queuedMessage.removeAria': 'Supprimer de la file d\'attente',
   'chat.queuedMessage.reorderAria': 'Glisser pour réorganiser',
+  'chat.queuedMessage.toast.queueFailed': 'Impossible de mettre le message en file d\'attente. Il est de retour dans l\'éditeur.',
+  'chat.queuedMessage.toast.takeFailed': 'Impossible de charger le message en file d\'attente. Veuillez réessayer.',
   'chat.container.returnToParent.aria': 'Retour à la session parents',
   'chat.container.returnToParent.titleNamed': 'Retourner à : {title}',
   'chat.container.returnToParent.title': 'Retour à la session parents',
