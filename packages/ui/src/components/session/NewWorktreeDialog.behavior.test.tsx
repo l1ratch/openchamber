@@ -113,6 +113,9 @@ mock.module('@/lib/worktrees/worktreeBootstrap', () => ({ waitForWorktreeBootstr
 mock.module('@/lib/openchamberConfig', () => ({
   getWorktreeSetupCommands: async () => [],
   getWorktreeSetupWaitEnabled: async () => false,
+}))
+mock.module('@/lib/sharedTrustConfirmation', () => ({
+  resolveWorktreeSetupCommands: async () => [],
 }));
 mock.module('@/lib/worktrees/worktreeStatus', () => ({ getRootBranch: async () => 'main' }));
 mock.module('@/lib/git/branchNameGenerator', () => ({ generateBranchSlug: () => 'draft-name' }));
