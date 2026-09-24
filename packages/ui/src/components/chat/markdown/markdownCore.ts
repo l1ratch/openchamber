@@ -1,4 +1,4 @@
-import { Marked, marked, type Tokens } from 'marked';
+import { Marked, marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
 import markedLinkifyIt from 'marked-linkify-it';
 import remend from 'remend';
 import katex from 'katex';
@@ -8,6 +8,7 @@ import { isAppLinkUrl } from '@/lib/url';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { contentFingerprint, HighlightResultCache, utf16Bytes } from './highlightResultCache';
 import { highlightCodeInWorker } from './markdown-worker';
+import { streamTuning } from '../lib/streamTuningFlags';
 import { escapeRawMarkdownHtml, isLocalFileUrl, MARKDOWN_FORBIDDEN_TAGS } from './markdownSecurity';
 
 const escapeAttr = (value: string): string =>
@@ -103,7 +104,14 @@ const getMarkdownImageCandidates = (markdown: string): MarkdownImageCandidate[] 
     return cached.candidates;
   }
 
-  const candidates = scanMarkdownImageCandidates(markdown);
+  let candidates: MarkdownImageCandidate[];
+  try {
+    candidates = scanMarkdownImageCandidates(markdown);
+  } catch {
+    // Image discovery is optional; a malformed message must not hide the chat
+    // or prevent discovery in the other messages.
+    return [];
+  }
   const bytes = estimateMarkdownImageCandidateCacheEntryBytes(markdown, candidates);
   if (bytes > MARKDOWN_IMAGE_CANDIDATE_CACHE_MAX_ENTRY_BYTES) return candidates;
 
@@ -185,6 +193,9 @@ type MarkdownBlock = {
   // very large open fence falls back to plain text until it closes, keeping
   // the repeated worker re-tokenization bounded.
   highlight: boolean;
+  // Set when the lexer already failed on this text. Parsing runs the same
+  // lexer and would fail the same way, after the same cost.
+  plainText?: true;
 };
 
 const hasReferenceDefinitions = (text: string): boolean =>
@@ -217,6 +228,73 @@ const heal = (text: string): string => {
   }
 };
 
+// While a fence stays open, every new line of code used to lex the whole
+// message again, although nothing above the fence can change and everything
+// after its opening line is code. The previous split is remembered, and text
+// that only extends an open trailing fence reuses it: the blocks above are
+// returned as they were and the fence block grows by the added text. Anything
+// that could change the split (a closing fence, a reference definition) takes
+// the full path. A few entries cover parts that stream side by side.
+type LiveSplit = { text: string; blocks: MarkdownBlock[]; fence: { char: string; size: number } };
+
+const LIVE_SPLIT_MEMO_MAX = 4;
+let liveSplits: LiveSplit[] = [];
+const liveSplitStats = { reused: 0, lexed: 0 };
+
+const openFenceMarker = (raw: string): { char: string; size: number } | null => {
+  if (!hasOpenFence(raw)) return null;
+  const mark = raw.match(/^[ \t]{0,3}(`{3,}|~{3,})/)?.[1];
+  return mark ? { char: mark[0] ?? '`', size: mark.length } : null;
+};
+
+const rememberLiveSplit = (text: string, blocks: MarkdownBlock[]): void => {
+  // The lexer path keeps a text with reference definitions as one healed
+  // block; extending it as a plain fence would render it differently.
+  if (hasReferenceDefinitions(text)) return;
+  const last = blocks.at(-1);
+  const fence = last ? openFenceMarker(last.raw) : null;
+  // The fence block has to be exactly the tail of the text for the added text
+  // to belong to it, and a block the lexer failed on is not a split at all.
+  if (!last || last.plainText || !fence || !text.endsWith(last.raw)) return;
+  liveSplits = [{ text, blocks, fence }, ...liveSplits.filter((entry) => entry.text !== text)].slice(0, LIVE_SPLIT_MEMO_MAX);
+};
+
+const extendOpenFence = (text: string): MarkdownBlock[] | null => {
+  let base: LiveSplit | undefined;
+  for (const entry of liveSplits) {
+    if (entry.text.length >= text.length || (base && base.text.length >= entry.text.length)) continue;
+    if (text.startsWith(entry.text)) base = entry;
+  }
+  if (!base) return null;
+
+  // Judge whole lines: the line the previous text ended in may only now have
+  // become a closing fence or a reference definition.
+  const region = text.slice(base.text.lastIndexOf('\n') + 1);
+  if (hasReferenceDefinitions(region)) return null;
+  const closing = new RegExp(`^[\\t ]{0,3}${base.fence.char}{${base.fence.size},}[\\t ]*$`, 'm');
+  if (closing.test(region)) return null;
+
+  const previous = base.blocks.at(-1);
+  if (!previous) return null;
+  const raw = previous.raw + text.slice(base.text.length);
+  const blocks = [
+    ...base.blocks.slice(0, -1),
+    { raw, src: raw, mode: 'live' as const, highlight: raw.split('\n').length <= OPEN_FENCE_HIGHLIGHT_LINE_LIMIT },
+  ];
+  liveSplits = [{ text, blocks, fence: base.fence }, ...liveSplits.filter((entry) => entry !== base)].slice(0, LIVE_SPLIT_MEMO_MAX);
+  return blocks;
+};
+
+/** Test-only: forget remembered splits and read how many were reused. */
+export const resetLiveSplitMemoForTests = (): void => {
+  liveSplits = [];
+  liveSplitStats.reused = 0;
+  liveSplitStats.lexed = 0;
+};
+export const __liveSplitStatsForTests = () => ({ ...liveSplitStats });
+export const __streamBlocksForTests = (text: string, live: boolean): Array<Pick<MarkdownBlock, 'raw' | 'src' | 'mode' | 'highlight'>> =>
+  streamBlocks(text, live).map(({ raw, src, mode, highlight }) => ({ raw, src, mode, highlight }));
+
 /**
  * Split markdown into render blocks. When not streaming, returns a single
  * `full` block. While streaming, heals incomplete syntax and isolates an
@@ -225,6 +303,18 @@ const heal = (text: string): string => {
  */
 const streamBlocks = (text: string, live: boolean): MarkdownBlock[] => {
   if (!live) return [{ raw: text, src: text, mode: 'full', highlight: true }];
+  const extended = streamTuning.reuseLiveSplit() ? extendOpenFence(text) : null;
+  if (extended) {
+    liveSplitStats.reused += 1;
+    return extended;
+  }
+  liveSplitStats.lexed += 1;
+  const blocks = lexStreamBlocks(text);
+  rememberLiveSplit(text, blocks);
+  return blocks;
+};
+
+const lexStreamBlocks = (text: string): MarkdownBlock[] => {
   // Reference-style links/footnotes span multiple tokens (definition elsewhere);
   // keep them as a single block so per-block parsing doesn't break the refs.
   if (hasReferenceDefinitions(text)) {
@@ -233,9 +323,9 @@ const streamBlocks = (text: string, live: boolean): MarkdownBlock[] => {
 
   let tokens: Tokens.Generic[];
   try {
-    tokens = marked.lexer(text) as Tokens.Generic[];
+    tokens = inlineImageParser.lexer(text);
   } catch {
-    return [{ raw: text, src: heal(text), mode: 'live', highlight: true }];
+    return [{ raw: text, src: text, mode: 'live', highlight: true, plainText: true }];
   }
 
   let tail = -1;
@@ -283,9 +373,9 @@ const streamBlocks = (text: string, live: boolean): MarkdownBlock[] => {
 // backslash escapes and strips the slash before any HTML post-process can see
 // them. Registering them as tokenizers also makes them code-safe for free
 // (marked tokenizes code spans/fences first, so these never fire inside code).
-// Single-dollar `$...$` is intentionally NOT supported — it collides with
-// currency text ($50, US$ 680); only `$$...$$` survives as display math (see
-// renderMathExpressions). This mirrors KaTeX auto-render's default delimiters.
+// Dollar math (`$...$` inline, `$$...$$` display) survives marked untouched
+// (no backslash) and is rendered later from the parsed HTML, with currency
+// guards — see renderMathExpressions.
 type MathToken = { type: string; raw: string; text: string };
 
 const renderKatex = (math: string, raw: string, displayMode: boolean): string => {
@@ -342,6 +432,74 @@ const blockMathExtension = {
   },
 };
 
+// Own the entire disclosure token, including an unfinished streamed body. HTML
+// token boundaries otherwise split it at blank lines and close the DOM early.
+const detailsExtension: TokenizerAndRendererExtension = {
+  name: 'disclosure',
+  level: 'block',
+  start(src) {
+    const match = /(?:^|\n) {0,3}<details(?:\s|>)/i.exec(src);
+    return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
+  },
+  tokenizer(src) {
+    // Only the native boolean open attribute is accepted. Never forward raw
+    // attributes, styles, event handlers, or an arbitrary HTML subtree.
+    const opening = /^ {0,3}<details(?:\s+(open(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?))?\s*>\s*<summary\s*>([\s\S]*?)<\/summary\s*>/i.exec(src);
+    if (!opening) return undefined;
+    const bodyStart = opening[0].length;
+    const body = src.slice(bodyStart);
+    const markers = /(^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$))|(`+)|(<\/?details\b[^>]*>)/gim;
+    let depth = 1;
+    let bodyEnd = body.length;
+    let end = src.length;
+    let marker: RegExpExecArray | null;
+    while ((marker = markers.exec(body))) {
+      if (marker[2]) {
+        const fence = marker[2];
+        const close = new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[\\t ]*(?:\\n|$)`, 'gm');
+        close.lastIndex = markers.lastIndex;
+        const found = close.exec(body);
+        if (!found) break;
+        markers.lastIndex = close.lastIndex;
+      } else if (marker[3]) {
+        const ticks = marker[3];
+        const close = /`+/g;
+        close.lastIndex = markers.lastIndex;
+        let found: RegExpExecArray | null;
+        while ((found = close.exec(body))) {
+          if (found[0].length === ticks.length) {
+            markers.lastIndex = close.lastIndex;
+            break;
+          }
+        }
+      } else if (marker[4]) {
+        const lineStart = body.lastIndexOf('\n', marker.index - 1) + 1;
+        const prefix = body.slice(lineStart, marker.index);
+        // Quoted and indented code belongs to the child Markdown parser. Its
+        // HTML-looking text must not terminate the surrounding disclosure.
+        if (/^(?: {4}|\t| {0,3}>)/.test(prefix) || /(?:^|[^\\])(?:\\\\)*\\$/.test(prefix)) continue;
+        depth += /^<\//.test(marker[4]) ? -1 : 1;
+        if (depth === 0) {
+          bodyEnd = marker.index;
+          end = bodyStart + markers.lastIndex;
+          break;
+        }
+      }
+    }
+    return {
+      type: 'disclosure',
+      raw: src.slice(0, end),
+      open: Boolean(opening[1]),
+      summary: this.lexer.inlineTokens(opening[2] ?? ''),
+      tokens: this.lexer.blockTokens(body.slice(0, bodyEnd)),
+    };
+  },
+  renderer(token) {
+    return `<details data-md-details${token.open ? ' open' : ''}><summary>${this.parser.parseInline(token.summary)}</summary>${this.parser.parse(token.tokens ?? [])}</details>`;
+  },
+  childTokens: ['summary', 'tokens'],
+};
+
 // marked's GFM autolink swallows CJK punctuation after a bare URL, so switch
 // to marked-linkify-it, which treats Unicode punctuation as a URL boundary.
 // Plain CJK characters right after a URL are still consumed, matching GitHub.
@@ -350,7 +508,7 @@ const createParser = (imageMode: MarkdownImageMode) => new Marked().use(
   {
     gfm: true,
     breaks: false,
-    extensions: [inlineMathExtension, blockMathExtension],
+    extensions: [inlineMathExtension, blockMathExtension, detailsExtension],
   renderer: {
     // Assistant output is untrusted. Markdown constructs still render as HTML,
     // but raw HTML must remain visible text so it cannot introduce active DOM
@@ -382,20 +540,62 @@ const imageLabelParser = createParser('label');
 // Math (KaTeX) — post-process the parsed HTML, skipping code/pre/kbd content
 // ---------------------------------------------------------------------------
 
-// Only `$$...$$` (display) is handled here. Single-dollar `$...$` inline math is
-// deliberately omitted: it parses currency text ($50, US$ 680, "$50M to $72M")
-// as math and corrupts it. Inline math is supported via `\(...\)` (see the
-// marked extensions above). `$$` survives marked untouched (no backslash), so
-// post-processing the parsed HTML — skipping code via renderMathExpressions —
-// stays correct and code-safe.
+// Dollar delimiters have no backslash, so marked passes them through and
+// math is post-processed from the rendered HTML below.
+//
+// marked renders text with HTML entities (`'` → `&#39;`, `&` → `&amp;`, `<` →
+// `&lt;`), so the captured LaTeX must be unescaped again before KaTeX sees
+// it. Without this, a transpose `(y-X\beta)'` or an alignment `&` parse-fails
+// and KaTeX paints the raw source red (`katex-error`, via index.css).
+const unescapeHtml = (value: string): string =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+
+// Both dollar forms are matched by one alternation so KaTeX output is never
+// rescanned by the same pass:
+//
+//   `$$...$$`  display math, content may span lines but never markup.
+//   `$...$`    inline math, guarded so currency prose stays text —
+//                `$5 and $10`, `US$ 680`, `$50M to $72M` survive as literal:
+//                - the opening `$` must be followed by a non-space, non-`$`
+//                - the closing `$` must be preceded by a non-space and not
+//                  followed by a digit
+//                - content never contains `$`/`<`/`>`/`"`, so a pair cannot
+//                  reach across markup or into an attribute
+//                - purely numeric content (`$100$`) stays text
+//
+// `\$` escapes cannot be honored post-parse: marked has already consumed the
+// backslash by the time this pass runs.
+const MATH_DOLLAR_RE =
+  /\$\$([\s\S]*?)\$\$|\$(?![\s$])([^\s$<>"](?:[^$<>"]*?[^\s$<>"])?)\$(?!\d)/g;
+
+const DOLLAR_AMOUNT_RE = /^[\d.,\s]+$/;
+
 const renderMathInText = (text: string): string =>
-  text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math: string) => {
-    try {
-      return katex.renderToString(math, { displayMode: true, throwOnError: false });
-    } catch {
-      return `$$${math}$$`;
+  text.replace(MATH_DOLLAR_RE, (match, display: string | undefined, inline: string | undefined) => {
+    if (display !== undefined) {
+      return renderKatex(unescapeHtml(display), match, true);
     }
+    if (inline !== undefined && !DOLLAR_AMOUNT_RE.test(inline)) {
+      return renderKatex(unescapeHtml(inline), match, false);
+    }
+    return match;
   });
+
+// Math runs per text run, mirroring how KaTeX auto-render walks DOM text
+// nodes: markup boundaries are excluded, so a `$...$` pair never stretches
+// across elements or into an attribute (an href may legitimately hold `$`).
+const TAG_RE = /(<[^>]*>)/;
+
+const renderMathInTextRun = (part: string): string =>
+  part
+    .split(TAG_RE)
+    .map((segment, index) => (index % 2 === 1 ? segment : renderMathInText(segment)))
+    .join('');
 
 const renderMathExpressions = (html: string): string => {
   // No `$` anywhere means no math to render — skip the split + regex passes on
@@ -405,7 +605,7 @@ const renderMathExpressions = (html: string): string => {
   const codeBlockPattern = /(<(?:pre|code|kbd)[^>]*>[\s\S]*?<\/(?:pre|code|kbd)>)/gi;
   return html
     .split(codeBlockPattern)
-    .map((part, index) => (index % 2 === 1 ? part : renderMathInText(part)))
+    .map((part, index) => (index % 2 === 1 ? part : renderMathInTextRun(part)))
     .join('');
 };
 
@@ -427,14 +627,6 @@ const exceedsLineLimit = (value: string, limit: number): boolean => {
   }
   return false;
 };
-
-const unescapeHtml = (value: string): string =>
-  value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&');
 
 const highlightCodeBlocks = async (html: string): Promise<string> => {
   const matches = [...html.matchAll(CODE_BLOCK_RE)];
@@ -596,9 +788,19 @@ export const getCachedMarkdownBlocks = (
   return rendered;
 };
 
+const renderPlainText = (text: string): string =>
+  `<div class="whitespace-pre-wrap break-words">${escapeRawMarkdownHtml(text)}</div>`;
+
 const parseBlock = async (block: MarkdownBlock, imageMode: MarkdownImageMode): Promise<string> => {
+  if (block.plainText) return renderPlainText(block.raw);
   const parser = imageMode === 'label' ? imageLabelParser : inlineImageParser;
-  const parsed = await Promise.resolve(parser.parse(block.src));
+  let parsed: string;
+  try {
+    parsed = await parser.parse(block.src);
+  } catch {
+    // Preserve the original source, not the syntax repaired for streaming.
+    return renderPlainText(block.raw);
+  }
   const withMath = renderMathExpressions(parsed);
   const highlighted = block.highlight ? await highlightCodeBlocks(withMath) : withMath;
   return sanitize(highlighted);
@@ -619,7 +821,12 @@ export const renderMarkdownSync = (
 ): string => {
   if (!text) return '';
   const parser = imageMode === 'label' ? imageLabelParser : inlineImageParser;
-  const parsed = parser.parse(text) as string;
+  let parsed: string;
+  try {
+    parsed = parser.parse(text, { async: false });
+  } catch {
+    return renderPlainText(text);
+  }
   const withMath = renderMathExpressions(parsed);
   return sanitize(withMath);
 };

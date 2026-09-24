@@ -3,14 +3,15 @@ import { isDesktopShell, requestFileAccess, startDesktopWindowDrag } from '@/lib
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
-import { updateDesktopSettings } from '@/lib/persistence';
+import { loadDesktopSettings, updateDesktopSettings } from '@/lib/persistence';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { restartDesktopApp } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
-const INSTALL_COMMAND = 'curl -fsSL https://opencode.ai/install | bash';
-const DOCS_URL = 'https://opencode.ai/docs';
+const INSTALL_COMMAND = 'curl -fsSL https://opencode.ai/v2/install | bash';
+const WINDOWS_INSTALL_COMMAND = 'npm install -g @opencode/cli';
+const DOCS_URL = 'https://opencode.ai/download';
 
 type OnboardingPlatform = 'macos' | 'linux' | 'windows' | 'unknown';
 
@@ -25,20 +26,27 @@ type LocalSetupScreenProps = {
   onSwitchToRemote?: () => void;
 };
 
-function BashCommand({ onCopy, copyTitle }: { onCopy: () => void; copyTitle: string }) {
+function InstallCommand({ windows, onCopy, copyTitle }: { windows: boolean; onCopy: () => void; copyTitle: string }) {
   return (
     <div className="flex items-center justify-center gap-3">
-      <code>
-        <span style={{ color: 'var(--syntax-keyword)' }}>curl</span>
-        <span className="text-muted-foreground"> -fsSL </span>
-        <span style={{ color: 'var(--syntax-string)' }}>https://opencode.ai/install</span>
-        <span className="text-muted-foreground"> | </span>
-        <span style={{ color: 'var(--syntax-keyword)' }}>bash</span>
+      <code className="flex-1 min-w-0 text-left overflow-x-auto whitespace-nowrap">
+        {windows ? (
+          <span style={{ color: 'var(--syntax-keyword)' }}>{WINDOWS_INSTALL_COMMAND}</span>
+        ) : (
+          <>
+            <span style={{ color: 'var(--syntax-keyword)' }}>curl</span>
+            <span className="text-muted-foreground"> -fsSL </span>
+            <span style={{ color: 'var(--syntax-string)' }}>https://opencode.ai/v2/install</span>
+            <span className="text-muted-foreground"> | </span>
+            <span style={{ color: 'var(--syntax-keyword)' }}>bash</span>
+          </>
+        )}
       </code>
       <button
         onClick={onCopy}
         className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
         title={copyTitle}
+        aria-label={copyTitle}
       >
         <Icon name="file-copy" className="h-4 w-4" />
       </button>
@@ -99,11 +107,9 @@ export function LocalSetupScreen({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await runtimeFetch('/api/config/settings', { method: 'GET', headers: { Accept: 'application/json' } });
-        if (!response.ok) return;
-        const data = (await response.json().catch(() => null)) as null | { opencodeBinary?: unknown };
+        const data = await loadDesktopSettings();
         if (!data || cancelled) return;
-        const value = typeof data.opencodeBinary === 'string' ? data.opencodeBinary.trim() : '';
+        const value = data.opencodeBinary ?? '';
         if (value) {
           setOpencodeBinary(value);
         }
@@ -174,14 +180,14 @@ export function LocalSetupScreen({
   }, [isDesktopApp, opencodeBinary]);
 
   const handleCopy = React.useCallback(async () => {
-    const result = await copyTextToClipboard(INSTALL_COMMAND);
+    const result = await copyTextToClipboard(platform === 'windows' ? WINDOWS_INSTALL_COMMAND : INSTALL_COMMAND);
     if (result.ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } else {
       console.error('Failed to copy:', result.error);
     }
-  }, []);
+  }, [platform]);
 
   const handleCheckAndContinue = React.useCallback(async () => {
     setIsChecking(true);
@@ -206,8 +212,8 @@ export function LocalSetupScreen({
     platform === 'windows'
       ? 'C:\\Users\\you\\AppData\\Roaming\\npm\\opencode.cmd'
       : platform === 'linux'
-        ? '/home/you/.bun/bin/opencode'
-        : '/Users/you/.bun/bin/opencode';
+        ? '/home/you/.opencode/bin/opencode'
+        : '/Users/you/.opencode/bin/opencode';
 
   return (
     <div
@@ -252,7 +258,7 @@ export function LocalSetupScreen({
                 {t('onboarding.common.status.copiedToClipboard')}
               </div>
             ) : (
-              <BashCommand onCopy={handleCopy} copyTitle={t('onboarding.common.copyToClipboard')} />
+              <InstallCommand windows={platform === 'windows'} onCopy={handleCopy} copyTitle={t('onboarding.common.copyToClipboard')} />
             )}
           </div>
         </div>

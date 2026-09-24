@@ -1,3 +1,4 @@
+import { OpenCodeCompatibilityGate } from '@/components/update/OpenCodeCompatibilityGate';
 import React from 'react';
 
 import { AboutSettings } from '@/components/sections/openchamber/AboutSettings';
@@ -6,10 +7,12 @@ import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
+import { AppStartupOverlay } from '@/components/ui/AppStartupOverlay';
 import { ChatView } from '@/components/views/ChatView';
 import { PlanView } from '@/components/views/PlanView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
+import { SharedTrustConfirmDialog } from '@/components/projects/SharedTrustConfirmDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
@@ -21,12 +24,14 @@ import { useRouter } from '@/hooks/useRouter';
 import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
+import { useRoutingSync } from '@/hooks/useRoutingSync';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import type { ProjectRef } from '@/lib/projectContextApi';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { useI18n } from '@/lib/i18n';
+import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint, MOBILE_DISCONNECTED_RUNTIME_KEY } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
@@ -45,6 +50,7 @@ import {
   partitionWorktreesByRegisteredProject,
   worktreeMapsEqual,
 } from '@/lib/worktrees/worktreeManager';
+import { refreshWorktreeTopologyForChange } from '@/lib/worktrees/worktreeTopologyRefresh';
 import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -57,6 +63,7 @@ import { MobileHeader } from './MobileHeader';
 import { MobileInstancesSurface } from './MobileInstancesSurface';
 import { MobileSessionsSheet } from './MobileSessionsSheet';
 import { MobileFullscreenSurface } from './MobileFullscreenSurface';
+import { UsageStatsView } from '@/components/views/usage/UsageStatsView';
 import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, logMobileConnectEvent, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
@@ -81,11 +88,19 @@ const MOBILE_SETTINGS_PAGES = [
   'chat',
   'notifications',
   'sessions',
+  'routing',
   'git',
   'magic-prompts',
+  'snippets',
   'behavior',
+  'agents',
+  'commands',
   'mcp',
+  'plugins',
+  'skills.installed',
+  'skills.catalog',
   'providers',
+  'web-search',
   'usage',
   'voice',
   'integrations',
@@ -102,7 +117,7 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     footer. Exactly one can be open at a time — opening another replaces it,
     closing returns to the chat. The sessions drawer and the workspace drawer
     (Changes / Files / Terminal / Notes / MCP) are separate layers. */
-type MobileSurface = 'instances' | 'settings' | 'update';
+type MobileSurface = 'instances' | 'settings' | 'update' | 'usage';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
@@ -179,6 +194,16 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setWorkspaceTab('files');
     setWorkspaceOpen(true);
   }, []);
+
+  // The agent asked for a file to be shown: open the files drawer and stage
+  // the path the way a chat file link does, so the surface routes to it.
+  React.useEffect(() => subscribeOpenchamberEvents((event) => {
+    if (event.type !== 'file-open-request') return;
+    const directory = event.directory ?? useDirectoryStore.getState().currentDirectory;
+    if (!directory) return;
+    useUIStore.getState().openContextFile(directory, event.path);
+    openFilesSurface();
+  }), [openFilesSurface]);
 
   const openChangesSurface = React.useCallback((diff: { path: string; staged: boolean } | null = null) => {
     setPendingChangesDiff(diff);
@@ -295,12 +320,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     onRightEdgeSwipe: () => setWorkspaceOpen(true),
   });
 
+  // Settings owns a drill-down of its own (nav → page list → item), so the
+  // hardware back button asks it to step up before the shell closes it.
+  const settingsBackRef = React.useRef<(() => boolean) | null>(null);
+  const registerSettingsBackHandler = React.useCallback((handler: (() => boolean) | null) => {
+    settingsBackRef.current = handler;
+  }, []);
+
   // Top-most layer first: a plan or fullscreen surface can sit ABOVE a drawer
   // (opened from the drawer footer / workspace tabs), so they close before the
   // drawers underneath.
   const handleNativeBack = React.useCallback(() => {
     if (openPlan) {
       setOpenPlan(null);
+      return true;
+    }
+    if (activeSurface === 'settings' && settingsBackRef.current?.()) {
       return true;
     }
     if (activeSurface) {
@@ -320,9 +355,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
   useNativeAndroidBackButton(handleNativeBack);
 
-  // Server updates are actionable from a browser (hosted mobile) but not from
-  // the Capacitor shell — the native app updates through the store, and the
-  // server it CONNECTS to is updated elsewhere.
+  // The footer update item follows the shared update store, which in the
+  // Capacitor shell tracks the app build (store updates), not the server. The
+  // native app reaches server updates through Settings → About instead.
   const showUpdateItem = !showCapacitorOnlyFeatures
     && updateAvailable
     && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
@@ -338,6 +373,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
       onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
       onOpenSettings: () => openSettingsSurface('nav'),
+      onOpenUsage: () => openSurface('usage'),
       onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
     [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
@@ -365,8 +401,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       oauthClientSecret: '',
       oauthScope: '',
       oauthRedirectUri: '',
-      timeout: '',
-      enabled: true,
+      oauthCallbackPort: '',
+      oauthAuthServerMetadataUrl: '',
+      protocol: 'legacy',
+      timeoutStartup: '',
+      timeoutCatalog: '',
+      timeoutExecution: '',
+      codemode: true,
+      disabled: false,
     };
 
     setMcpDraft(draft);
@@ -470,73 +512,60 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           />
         ) : null}
 
-        {/* Tablet: the workspace lives inside an animated aside so landscape
-            gets a real sidebar. The drawer element keeps its position in the
-            tree across rotation — only its `variant` changes — so the mounted
-            panes (open diff, edited file, attached terminal) survive it. In
-            portrait the drawer portals itself out and this aside stays at 0. */}
-        {isTabletLayout ? (
-          <aside
-            ref={rightResize.asideRef}
+        {/* Keep the workspace in the same tree position across size classes.
+            Keyboard resizing and folding can both cross the tablet threshold;
+            neither should discard the open editor, its draft, or its focus.
+            Outside panel mode the drawer portals out and this aside stays at 0. */}
+        <aside
+          ref={rightResize.asideRef}
+          className={cn(
+            'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
+            !workspacePanelWidth && 'border-l-0',
+          )}
+          style={{
+            width: workspacePanelWidth,
+            minWidth: workspacePanelWidth,
+            maxWidth: workspacePanelWidth,
+            ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
+            overflowX: 'clip',
+            paddingTop: 'var(--oc-safe-area-top, 0px)',
+            transitionProperty: rightResize.isResizing ? 'none' : 'width, min-width, max-width',
+            transitionDuration: '200ms',
+            transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          }}
+          aria-hidden={!workspacePanelWidth}
+          data-page-scroll-lock="true"
+        >
+          <div
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
-              !workspacePanelWidth && 'border-l-0',
+              'flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+              rightResize.isResizing && 'pointer-events-none',
+              !workspacePanelWidth && 'pointer-events-none select-none opacity-0',
             )}
-            style={{
-              width: workspacePanelWidth,
-              minWidth: workspacePanelWidth,
-              maxWidth: workspacePanelWidth,
-              ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
-              overflowX: 'clip',
-              paddingTop: 'var(--oc-safe-area-top, 0px)',
-              transitionProperty: rightResize.isResizing ? 'none' : 'width, min-width, max-width',
-              transitionDuration: '200ms',
-              transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            }}
-            aria-hidden={!workspacePanelWidth}
-            data-page-scroll-lock="true"
+            style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
           >
-            <div
-              className={cn(
-                'flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                rightResize.isResizing && 'pointer-events-none',
-                !workspacePanelWidth && 'pointer-events-none select-none opacity-0',
-              )}
-              style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
-            >
-              <ErrorBoundary>
-                <MobileWorkspaceDrawer
-                  open={workspaceOpen}
-                  onClose={closeWorkspace}
-                  tab={workspaceTab}
-                  onTabChange={setWorkspaceTab}
-                  pendingChangesDiff={pendingChangesDiff}
-                  onOpenPlan={setOpenPlan}
-                  onOpenMcpSettings={openMcpCreateSettings}
-                  variant={workspaceAsPanel ? 'panel' : 'drawer'}
-                />
-              </ErrorBoundary>
-            </div>
-            {workspacePanelWidth ? (
-              <IpadSidebarResizeHandle
-                side="right"
-                isResizing={rightResize.isResizing}
-                ariaLabel={t('sidebar.resize.rightPanelAria')}
-                handleProps={rightResize.handleProps}
+            <ErrorBoundary>
+              <MobileWorkspaceDrawer
+                open={workspaceOpen}
+                onClose={closeWorkspace}
+                tab={workspaceTab}
+                onTabChange={setWorkspaceTab}
+                pendingChangesDiff={pendingChangesDiff}
+                onOpenPlan={setOpenPlan}
+                onOpenMcpSettings={openMcpCreateSettings}
+                variant={workspaceAsPanel ? 'panel' : 'drawer'}
               />
-            ) : null}
-          </aside>
-        ) : (
-          <MobileWorkspaceDrawer
-            open={workspaceOpen}
-            onClose={closeWorkspace}
-            tab={workspaceTab}
-            onTabChange={setWorkspaceTab}
-            pendingChangesDiff={pendingChangesDiff}
-            onOpenPlan={setOpenPlan}
-            onOpenMcpSettings={openMcpCreateSettings}
-          />
-        )}
+            </ErrorBoundary>
+          </div>
+          {workspacePanelWidth ? (
+            <IpadSidebarResizeHandle
+              side="right"
+              isResizing={rightResize.isResizing}
+              ariaLabel={t('sidebar.resize.rightPanelAria')}
+              handleProps={rightResize.handleProps}
+            />
+          ) : null}
+        </aside>
 
         {/* Layered above the workspace drawer's Notes tab, which opened it. */}
         {openPlan ? (
@@ -589,13 +618,27 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 forceMobile
                 isWindowed
                 initialMobileStage={settingsInitialMobileStage}
-                // About exists for server updates — meaningful in a browser
-                // (hosted mobile), not in the Capacitor shell (store updates).
-                visiblePageSlugs={MOBILE_SETTINGS_PAGES.filter(
-                  (page) => !(showCapacitorOnlyFeatures && page === 'about'),
-                )}
+                registerBackHandler={registerSettingsBackHandler}
+                // About is shown in the native app too: there it checks and
+                // installs updates of the connected server (AboutSettings).
+                visiblePageSlugs={[...MOBILE_SETTINGS_PAGES]}
                 onClose={closeSurface}
               />
+            </ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {activeSurface === 'usage' ? (
+          <MobileFullscreenSurface
+            open
+            variant={surfaceVariant}
+            dialogAlign="app"
+            onClose={closeSurface}
+            ariaLabel={t('usageStats.title')}
+            title={t('usageStats.title')}
+          >
+            <ErrorBoundary>
+              <UsageStatsView />
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
@@ -621,7 +664,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   );
 };
 
-export function MobileApp({ apis }: MobileAppProps) {
+function MobileAppContent({ apis }: MobileAppProps) {
   const { t } = useI18n();
   const initializeApp = useConfigStore((state) => state.initializeApp);
   const isInitialized = useConfigStore((state) => state.isInitialized);
@@ -1097,6 +1140,22 @@ export function MobileApp({ apis }: MobileAppProps) {
     };
   }, [isConnected, projects]);
 
+  // A worktree added or removed anywhere (another window, an agent, a
+  // terminal) arrives as a server control event; refresh only the projects it
+  // names so the draft's worktree picker stays current without polling.
+  React.useEffect(() => {
+    if (!isConnected) return;
+    let cancelled = false;
+    const unsubscribe = subscribeOpenchamberEvents((event) => {
+      if (event.type !== 'worktree-changed') return;
+      void refreshWorktreeTopologyForChange(projects, event.directories, () => cancelled);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isConnected, projects]);
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -1144,6 +1203,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   usePushVisibilityBeacon({ enabled: true });
   useUpdatePolling();
   useWindowTitle();
+  useRoutingSync();
   useRouter();
   // APNs is the only notification channel on the native app (background-capable,
   // focus-suppressed server-side via the visibility beacon). Local notifications are
@@ -1169,8 +1229,8 @@ export function MobileApp({ apis }: MobileAppProps) {
   // already uses the real font instead of flashing the fallback and reflowing (FOUT).
   if (!fontsReady) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-background text-foreground">
-        <OpenChamberLogo width={120} height={120} isAnimated />
+      <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
+        <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
       </main>
     );
   }
@@ -1186,9 +1246,9 @@ export function MobileApp({ apis }: MobileAppProps) {
     // show a loader while it re-bootstraps instead of flashing the onboarding screen.
     if (hasRuntimeEndpoint) {
       return (
-        <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-foreground">
+        <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] px-6 text-center text-foreground">
           <div className="flex max-w-sm flex-col items-center gap-4">
-            <OpenChamberLogo width={120} height={120} isAnimated={!showConnectionRecovery} />
+            <OpenChamberLogo width={120} height={120} isAnimated={!showConnectionRecovery} variant="splash" />
             {showConnectionRecovery ? (
               <>
                 <div className="space-y-2">
@@ -1218,8 +1278,8 @@ export function MobileApp({ apis }: MobileAppProps) {
     // (no saved instance, unreachable, or needs re-login).
     if (autoConnectPhase !== 'done') {
       return (
-        <main className="relative flex min-h-dvh items-center justify-center bg-background text-foreground">
-          <OpenChamberLogo width={120} height={120} isAnimated />
+        <main className="relative flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
+          <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
           {/* Absolutely positioned below the (still perfectly centered) logo so
               the text never pushes it up. 50% + half the 120px logo + a gap. */}
           {autoConnectLabel ? (
@@ -1250,8 +1310,8 @@ export function MobileApp({ apis }: MobileAppProps) {
     // only shows once the recovery delay has expired (genuinely unreachable).
     if (!showConnectionRecovery) {
       return (
-        <main className="flex min-h-dvh items-center justify-center bg-background text-foreground">
-          <OpenChamberLogo width={120} height={120} isAnimated />
+        <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
+          <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
         </main>
       );
     }
@@ -1275,11 +1335,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                   until the last-session restore decides between session and
                   draft — otherwise the auto-opened draft flashes first. The
                   shell (and sync) still mounts and warms up underneath. */}
-              {isNativeMobileApp && lastSessionRestorePending ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-                  <OpenChamberLogo width={120} height={120} isAnimated />
-                </div>
-              ) : null}
+              <AppStartupOverlay ready={!isNativeMobileApp || !lastSessionRestorePending} animated />
               <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
               <OpenCodeUpdateToast />
               <MobileAppUpdateToast />
@@ -1288,6 +1344,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                 setConnectionEpoch((value) => value + 1);
               }} />
               <AppLinkConfirmDialog />
+              <SharedTrustConfirmDialog />
               <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
               {isInitialized ? <ConfigUpdateOverlay /> : null}
             </div>
@@ -1296,4 +1353,15 @@ export function MobileApp({ apis }: MobileAppProps) {
       </SyncProvider>
     </ErrorBoundary>
   );
+}
+
+export function MobileApp(props: MobileAppProps) {
+  const endpoint = React.useSyncExternalStore(
+    (notify) => subscribeRuntimeEndpointChanged(() => notify()),
+    getRuntimeApiBaseUrl,
+    getRuntimeApiBaseUrl,
+  );
+  // Native connection selection must mount before there is a server to probe.
+  if (isCapacitorMobileApp() && !endpoint) return <MobileAppContent {...props} />;
+  return <OpenCodeCompatibilityGate><MobileAppContent {...props} /></OpenCodeCompatibilityGate>;
 }

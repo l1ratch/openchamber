@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import {
   Dialog,
   DialogContent,
@@ -396,6 +397,22 @@ export function GitHubIssuePickerDialog({
 
       const sessionTitle = `#${issue.number} ${issue.title}`.trim();
 
+      // Resolved before the session exists, so it can be created on this model
+      // and agent instead of being switched by the first prompt.
+      const configState = useConfigStore.getState();
+      const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
+
+      const defaultModel = resolveDefaultModelSelection();
+      const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
+      const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
+      const agentName = resolveDefaultAgentName() || configState.currentAgentName || undefined;
+      if (!providerID || !modelID) {
+        toast.error(t('session.githubIssuePicker.error.noModelSelected'));
+        return;
+      }
+
+      const variant = resolveDefaultVariant(providerID, modelID);
+
       const { sessionId, sessionDirectory } = await (async () => {
         if (createInWorktree) {
           const preferred = `issue-${issue.number}-${generateBranchSlug()}`;
@@ -411,7 +428,10 @@ export function GitHubIssuePickerDialog({
           return { sessionId: created.id, sessionDirectory: created.path };
         }
 
-        const session = await sessionActions.createSession(sessionTitle, projectDirectory, null);
+        const session = await sessionActions.createSession(sessionTitle, projectDirectory, undefined, undefined, {
+          model: { providerID, id: modelID, variant },
+          agent: agentName,
+        });
         if (!session?.id) {
           throw new Error('Failed to create session');
         }
@@ -429,20 +449,6 @@ export function GitHubIssuePickerDialog({
 
       // Close modal immediately after session exists (don't wait for message send).
       onOpenChange(false);
-
-      const configState = useConfigStore.getState();
-      const lastUsedProvider = useSelectionStore.getState().lastUsedProvider;
-
-      const defaultModel = resolveDefaultModelSelection();
-      const providerID = defaultModel?.providerID || configState.currentProviderId || lastUsedProvider?.providerID;
-      const modelID = defaultModel?.modelID || configState.currentModelId || lastUsedProvider?.modelID;
-      const agentName = resolveDefaultAgentName() || configState.currentAgentName || undefined;
-      if (!providerID || !modelID) {
-        toast.error(t('session.githubIssuePicker.error.noModelSelected'));
-        return;
-      }
-
-      const variant = resolveDefaultVariant(providerID, modelID);
 
       const visiblePromptText = await renderMagicPrompt('github.issue.review.visible', {
         issue_number: String(issue.number),
@@ -514,7 +520,7 @@ export function GitHubIssuePickerDialog({
         />
       </div>
 
-      <div className={cn(isMobile ? 'min-h-0 mt-2' : 'flex-1 overflow-y-auto mt-2')}>
+      <ScrollableOverlay outerClassName={cn(isMobile ? 'min-h-0 mt-2' : 'flex-1 mt-2')} disableHorizontal>
           {!projectDirectory ? (
             <div className="text-center text-muted-foreground py-8">{t('session.githubIssuePicker.empty.noActiveProject')}</div>
           ) : null}
@@ -636,7 +642,7 @@ export function GitHubIssuePickerDialog({
               </button>
             </div>
           ) : null}
-      </div>
+      </ScrollableOverlay>
 
       {mode !== 'select' && (
         <div className="mt-4 p-3 bg-muted/30 rounded-lg">
@@ -663,7 +669,7 @@ export function GitHubIssuePickerDialog({
                   setCreateInWorktree((v) => !v);
                 }}
                 aria-label={t('session.githubIssuePicker.actions.toggleWorktreeAria')}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {createInWorktree ? (
                   <Icon name="checkbox" className="h-4 w-4 text-primary" />

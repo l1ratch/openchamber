@@ -2,6 +2,7 @@ import { copyTextToClipboard } from '@/lib/clipboard';
 import { getExternalFaviconUrl, isExternalHttpUrl, isLoopbackHttpUrl } from '@/lib/url';
 import { dropdownMenuItemClass, dropdownMenuPopupClass } from '@/components/ui/dropdown-menu.styles';
 import type { IconName } from '@/components/icon/icons';
+import { MESSAGE_IMAGE_EXPORT_EXCLUDE_ATTRIBUTE } from '../message/imageExport';
 import { getMermaidViewerController } from './mermaidViewer';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ const ICONS = {
   fit: 'refresh',
   textWrap: 'text-wrap',
   image: 'file-image',
+  disclosure: 'arrow-right-s',
 } as const satisfies Record<string, IconName>;
 
 const ICON_BTN_CLASS =
@@ -78,6 +80,19 @@ const decorateImageLabels = (root: HTMLElement): void => {
     icon.setAttribute('data-openchamber-markdown-image-label-icon', 'true');
     setIcon(icon, 'image');
     label.prepend(icon);
+  }
+};
+
+const decorateDisclosures = (root: HTMLElement): void => {
+  for (const summary of root.querySelectorAll<HTMLElement>('details[data-md-details] > summary')) {
+    if (summary.querySelector('[data-md-disclosure-icon]')) continue;
+    const label = document.createElement('span');
+    label.append(...Array.from(summary.childNodes));
+    const icon = document.createElement('span');
+    icon.setAttribute('data-md-disclosure-icon', '');
+    icon.setAttribute('aria-hidden', 'true');
+    setIcon(icon, 'disclosure');
+    summary.append(icon, label);
   }
 };
 
@@ -344,7 +359,7 @@ const decorateTables = (root: HTMLElement, labels: DecorateLabels): void => {
     if (existing) continue;
 
     const wrapper = document.createElement('div');
-    wrapper.className = 'group my-4 flex flex-col space-y-2';
+    wrapper.className = 'group my-4 flex w-fit max-w-full flex-col space-y-2';
     wrapper.setAttribute('data-markdown', 'table-wrapper');
 
     const toolbar = document.createElement('div');
@@ -581,6 +596,7 @@ const decorateLinks = (root: HTMLElement, ctx: DecorateContext): void => {
     const faviconUrl = getExternalFaviconUrl(href);
     if (faviconUrl) {
       const favWrap = document.createElement('span');
+      favWrap.setAttribute(MESSAGE_IMAGE_EXPORT_EXCLUDE_ATTRIBUTE, 'true');
       favWrap.className =
         'mr-1 inline-flex size-[18px] items-center justify-center rounded border border-[var(--border)] bg-[var(--interactive-hover)] align-middle';
       const img = document.createElement('img');
@@ -611,6 +627,7 @@ const decorateLinks = (root: HTMLElement, ctx: DecorateContext): void => {
 
 /** Run all idempotent DOM decoration passes over freshly-rendered markdown. */
 export const decorateMarkdown = (root: HTMLElement, ctx: DecorateContext): void => {
+  decorateDisclosures(root);
   decorateImageLabels(root);
   decorateInlineCode(root);
   decorateMermaid(root, ctx);

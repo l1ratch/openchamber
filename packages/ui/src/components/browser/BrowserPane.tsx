@@ -7,7 +7,7 @@ import { invokeDesktopCommand } from '@/lib/desktopNative';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
-import { useUIStore } from '@/stores/useUIStore';
+import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { BLANK_URL, isLoopbackUrl, isStartingServerFailure, normalizeBrowserUrl } from '@/lib/browser/url';
 import { probeLoopbackStatus } from '@/lib/browser/devServers';
 import {
@@ -111,6 +111,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
   const [isAnnotating, setIsAnnotating] = React.useState(false);
   const [isWaitingForServer, setIsWaitingForServer] = React.useState(false);
   const [zoomLevel, setZoomLevel] = React.useState(0);
+  const zoomLevelRef = React.useRef(0);
   const [showDeviceBar, setShowDeviceBar] = React.useState(false);
   const [viewport, setViewport] = React.useState<BrowserViewport>(FILL_VIEWPORT);
   // Read inside agent actions, which are not re-created when the viewport
@@ -340,38 +341,57 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
     }
 
     if (action === 'browser.capture') {
-      // A user may close the panel after browser.open. Chromium then removes
-      // the zero-width webview's composited surface and capturePage() fails
-      // with UnknownVizError. Reveal this existing browser tab again and let
-      // the layout paint before asking Electron for the image.
-      useUIStore.getState().openContextBrowser(directory, webview.getURL());
-      const surfaceDeadline = Date.now() + 1_200;
-      let previousWidth = 0;
-      let stableSamples = 0;
-      while (stableSamples < 2 && Date.now() < surfaceDeadline) {
-        const width = webview.getBoundingClientRect().width;
-        stableSamples = width >= 2 && Math.abs(width - previousWidth) < 0.5
-          ? stableSamples + 1
-          : 0;
-        previousWidth = width;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      // Wait for a settled page first: a screenshot of a half-painted layout is
-      // worse than none, because it looks like a finished one.
-      await waitForIdle();
-      const capture = await annotationHost.capturePage();
-      if (!capture) throw new Error('The page could not be captured');
-      let title = '';
-      try { title = webview.getTitle() || ''; } catch { title = ''; }
-      return {
-        ...capture,
-        url: toDisplayUrl(webview.getURL()),
-        title,
-        viewport: viewportSummary(viewportRef.current),
+      // Agents work the browser in the background, but Chromium keeps no
+      // composited surface for a webview in a closed panel or a hidden tab, so
+      // capturePage() fails with UnknownVizError. Show this tab only for the
+      // capture, then put the panel back the way the user left it.
+      const ui = useUIStore.getState();
+      const panelKey = normalizeContextPanelDirectoryKey(directory);
+      const before = ui.contextPanelByDirectory[panelKey];
+      const wasShowing = Boolean(before?.isOpen && before.activeTabId === tabID);
+      if (!wasShowing) ui.setActiveContextPanelTab(directory, tabID);
+      const restorePanel = () => {
+        if (wasShowing || !before) return;
+        const now = useUIStore.getState();
+        const current = now.contextPanelByDirectory[panelKey];
+        // The user took over the panel meanwhile: their choice stands.
+        if (!current?.isOpen || current.activeTabId !== tabID) return;
+        if (before.activeTabId && before.activeTabId !== tabID) {
+          now.setActiveContextPanelTab(directory, before.activeTabId);
+        }
+        if (!before.isOpen) now.closeContextPanel(directory);
       };
+      try {
+        const surfaceDeadline = Date.now() + 1_200;
+        let previousWidth = 0;
+        let stableSamples = 0;
+        while (stableSamples < 2 && Date.now() < surfaceDeadline) {
+          const width = webview.getBoundingClientRect().width;
+          stableSamples = width >= 2 && Math.abs(width - previousWidth) < 0.5
+            ? stableSamples + 1
+            : 0;
+          previousWidth = width;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        // Wait for a settled page first: a screenshot of a half-painted layout is
+        // worse than none, because it looks like a finished one.
+        await waitForIdle();
+        const capture = await annotationHost.capturePage();
+        if (!capture) throw new Error('The page could not be captured');
+        let title = '';
+        try { title = webview.getTitle() || ''; } catch { title = ''; }
+        return {
+          ...capture,
+          url: toDisplayUrl(webview.getURL()),
+          title,
+          viewport: viewportSummary(viewportRef.current),
+        };
+      } finally {
+        restorePanel();
+      }
     }
 
     if (action === 'browser.resize') {
@@ -470,7 +490,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
       await waitForIdle();
     }
     return result;
-  }, [annotationHost, directory, loadUrl, waitForIdle]);
+  }, [annotationHost, directory, loadUrl, tabID, waitForIdle]);
 
   React.useEffect(
     () => registerBrowserController({ run: runControlAction }),
@@ -580,6 +600,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
 
   const applyZoom = React.useCallback((level: number) => {
     const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level));
+    zoomLevelRef.current = next;
     setZoomLevel(next);
     try {
       webviewRef.current?.setZoomLevel(next);
@@ -587,6 +608,20 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
       // Not attached yet; the next change applies it.
     }
   }, []);
+
+  React.useEffect(() => {
+    const handleZoom = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const action = event.detail;
+      const webview = webviewRef.current;
+      if (!webview || document.activeElement !== webview) return;
+      if (action === 'zoom-in') applyZoom(zoomLevelRef.current + ZOOM_STEP);
+      else if (action === 'zoom-out') applyZoom(zoomLevelRef.current - ZOOM_STEP);
+      else if (action === 'zoom-reset') applyZoom(0);
+    };
+    window.addEventListener('openchamber:zoom', handleZoom);
+    return () => window.removeEventListener('openchamber:zoom', handleZoom);
+  }, [applyZoom]);
 
   const clearBrowsingData = React.useCallback((what: 'cookies' | 'cache') => {
     void invokeDesktopCommand('desktop_browser_clear_data', {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { create, type StoreApi } from "zustand"
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { SessionStatus } from "@/lib/opencode/model"
 
 import { INITIAL_STATE, type State } from "../types"
 import type { DirectoryStore } from "../child-store"
@@ -10,7 +10,7 @@ import {
   shouldTriggerStaleResync,
 } from "../sync-context"
 
-type StatusSnapshot = Record<string, { type: "idle" | "busy" | "retry"; attempt?: number; message?: string; next?: number }>
+type StatusSnapshot = Record<string, SessionStatus>
 
 function createDirectoryStore(initial: Partial<State>): StoreApi<DirectoryStore> {
   return create<DirectoryStore>()((set) => ({
@@ -82,6 +82,13 @@ describe("applySessionStatusSnapshot", () => {
         session_status: { ses_a: BUSY },
         message: { ses_a: streamingMessage() },
       })
+      const changed = applySessionStatusSnapshot(store, {} as StatusSnapshot, ["ses_a"], "authoritative")
+      expect(changed).toBe(true)
+      expect(store.getState().session_status.ses_a).toEqual({ type: "idle" })
+    })
+
+    test("seeds idle for a candidate with no previous status entry", () => {
+      const store = createDirectoryStore({ session_status: {} })
       const changed = applySessionStatusSnapshot(store, {} as StatusSnapshot, ["ses_a"], "authoritative")
       expect(changed).toBe(true)
       expect(store.getState().session_status.ses_a).toEqual({ type: "idle" })

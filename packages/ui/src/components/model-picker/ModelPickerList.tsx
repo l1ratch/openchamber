@@ -16,10 +16,12 @@ import { matchesRankQuery } from '@/lib/search/fuzzySearch';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { handleDropdownNavigationKey } from '@/components/ui/dropdown-navigation';
 import { getCurrentIntlLocale } from '@/lib/i18n';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { useModelPickerSectionsStore } from '@/stores/useModelPickerSectionsStore';
 import type { ModelMetadata } from '@/types';
 
@@ -320,7 +322,6 @@ interface ModelPickerListProps {
   providers: ModelPickerProvider[];
   favoriteModels: ModelPickerFavoriteEntry[];
   recentModels: ModelPickerFavoriteEntry[];
-  modelsMetadata: Map<string, ModelMetadata>;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onSelect: (entry: ModelPickerEntry) => void;
@@ -341,6 +342,12 @@ interface ModelPickerListProps {
     costPerMillion?: string;
   };
   selectedModel?: { providerID: string; modelID: string } | null;
+  /**
+   * A row pinned above favorites and providers: the Auto routing entry. It is
+   * not one of `providers`, takes part in keyboard navigation like any row,
+   * and is filtered by the search query on its display name.
+   */
+  leadingEntry?: ModelPickerEntry | null;
   hiddenModels?: HiddenModel[];
   allowedProviderIds?: string[];
   /**
@@ -380,12 +387,12 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   providers,
   favoriteModels,
   recentModels,
-  modelsMetadata,
   searchQuery,
   onSearchQueryChange,
   onSelect,
   labels,
   selectedModel,
+  leadingEntry = null,
   hiddenModels = [],
   allowedProviderIds,
   isModelAllowed,
@@ -416,6 +423,12 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   renderVersion,
   tooltipsEnabled = true,
 }) => {
+  // getModelMetadata falls back to the provider's own model record for models
+  // models.dev does not list. Subscribe to both sources it reads so rows
+  // re-render when either arrives.
+  const getModelMetadata = useConfigStore((state) => state.getModelMetadata);
+  useConfigStore((state) => state.modelsMetadata);
+  useConfigStore((state) => state.providers);
   const selectionStoreRef = React.useRef<IndexSelectionStore | null>(null);
   if (!selectionStoreRef.current) selectionStoreRef.current = createIndexSelectionStore();
   const selectionStore = selectionStoreRef.current;
@@ -567,8 +580,14 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
     if (stickyHeaders && scrollRef.current) syncStickyFade(scrollRef.current);
   }, [stickyHeaders, syncStickyFade, visibleSectionKeys]);
 
+  const visibleLeadingEntry = React.useMemo(() => {
+    if (!leadingEntry) return null;
+    return matchesQuery(getModelDisplayName(leadingEntry.model), leadingEntry.providerID, leadingEntry.modelID) ? leadingEntry : null;
+  }, [leadingEntry, matchesQuery]);
+
   const flatModelList = React.useMemo(() => {
     const items: ModelPickerEntry[] = [];
+    if (visibleLeadingEntry) items.push(visibleLeadingEntry);
     if (!collapsedSections.has('favorites')) filteredFavorites.forEach((entry) => items.push(entry));
     if (!collapsedSections.has('recent')) filteredRecents.forEach((entry) => items.push(entry));
     filteredProviders.forEach((provider) => {
@@ -576,7 +595,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
       provider.models.forEach((model) => items.push({ model, providerID: provider.id, modelID: model.id as string }));
     });
     return items;
-  }, [collapsedSections, filteredFavorites, filteredProviders, filteredRecents]);
+  }, [collapsedSections, filteredFavorites, filteredProviders, filteredRecents, visibleLeadingEntry]);
 
   const hasResults = flatModelList.length > 0;
   const favoriteSortingEnabled = Boolean(onReorderFavorite) && searchQuery.trim().length === 0 && filteredFavorites.length > 1;
@@ -585,9 +604,17 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
     filteredFavorites.map((entry) => [`${entry.providerID}:${entry.modelID}`, entry] as const),
   ), [filteredFavorites]);
 
-  React.useEffect(() => {
-    selectionStore.set(0);
-  }, [searchQuery, selectionStore]);
+  const initialSelectionIndex = searchQuery.trim() || !selectedModel ? 0 : Math.max(0,
+    flatModelList.findIndex((entry) => entry.providerID === selectedModel.providerID && entry.modelID === selectedModel.modelID),
+  );
+
+  React.useLayoutEffect(() => {
+    selectionStore.set(initialSelectionIndex);
+    // Opening or scrolling the list must not let a stationary pointer replace the current model.
+    keyboardOwnsSelectionRef.current = true;
+    lastMousePositionRef.current = null;
+    scrollIntoView(scrollRef.current, itemRefs.current[initialSelectionIndex]);
+  }, [initialSelectionIndex, searchQuery, selectedModel?.providerID, selectedModel?.modelID, selectionStore]);
 
   const selectIndex = React.useCallback((index: number) => {
     selectionStore.set(index);
@@ -608,10 +635,13 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
 
   React.useEffect(() => {
     onActiveEntryChange?.(flatModelList[selectionStore.getSnapshot()]);
-  }, [flatModelList, onActiveEntryChange, selectionStore]);
+  }, [flatModelList, initialSelectionIndex, onActiveEntryChange, selectionStore]);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if (event.defaultPrevented) return;
+    if (handleDropdownNavigationKey(event, (navigationKey) => {
+      moveSelection(navigationKey === 'ArrowDown' ? 1 : -1);
+    })) return;
     event.stopPropagation();
     if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
       const selected = flatModelList[selectionStore.getSnapshot()];
@@ -650,7 +680,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   let currentFlatIndex = 0;
 
   const renderRow = (entry: ModelPickerEntry, keyPrefix: string, showProviderLogo: boolean, rowIndex: number, dragHandleProps?: SortableFavoriteHandleProps | null) => {
-    const metadata = mergeModelMetadataWithLiveModel(entry.providerID, entry.model, modelsMetadata.get(`${entry.providerID}/${entry.modelID}`));
+    const metadata = mergeModelMetadataWithLiveModel(entry.providerID, entry.model, getModelMetadata(entry.providerID, entry.modelID));
     const contextTokens = formatModelContextTokens(metadata?.limit?.context);
     const count = selectionCount?.(entry) ?? 0;
     const isSelected = selectedModel?.providerID === entry.providerID && selectedModel.modelID === entry.modelID;
@@ -703,14 +733,15 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
                     <Icon name="draggable" className="size-3.5" />
                   </button>
                 ) : null}
+                {keyPrefix === 'leading' ? <Icon name="openchamber" className="h-3.5 w-3.5 flex-shrink-0" /> : null}
                 {showProviderLogo ? <ProviderLogo providerId={entry.providerID} className="h-3.5 w-3.5 flex-shrink-0" /> : null}
                 <span className="font-medium truncate">{getModelDisplayName(entry.model)}</span>
                 {contextTokens ? <span className={cn('typography-micro flex-shrink-0', isHighlighted ? 'text-interactive-selection-foreground/70' : 'text-muted-foreground')}>{contextTokens}</span> : null}
               </div>
               {count > 0 ? <span className={cn('typography-micro flex-shrink-0', isHighlighted ? 'text-interactive-selection-foreground/70' : 'text-muted-foreground')}>x{count}</span> : null}
               {renderRowEnd?.(entry, { isHighlighted, isSelected })}
-              {isSelected ? <Icon name="check" className="h-4 w-4 text-primary flex-shrink-0" /> : null}
-              {onToggleFavorite ? (
+              {isSelected ? <Icon name="check" className="h-4 w-4 text-inherit flex-shrink-0" /> : null}
+              {onToggleFavorite && keyPrefix !== 'leading' ? (
                 <button type="button" disabled={disabled} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFavorite(entry); }} className={cn('model-favorite-button flex h-4 w-4 items-center justify-center hover:text-primary/80 flex-shrink-0 disabled:pointer-events-none', favorite ? 'text-primary' : 'text-muted-foreground')} aria-label={favorite ? labels.unfavorite : labels.favorite} title={favorite ? labels.unfavorite : labels.favorite}>
                   <Icon name={favorite ? 'star-fill' : 'star'} className="h-3.5 w-3.5" />
                 </button>
@@ -905,7 +936,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
               >
                 <Icon name="close" className="h-3.5 w-3.5" />
                 <span>{labels.notSelected}</span>
-                {!selectedModel ? <Icon name="check" className="h-4 w-4 text-primary ml-auto" /> : null}
+                {!selectedModel ? <Icon name="check" className="h-4 w-4 text-inherit ml-auto" /> : null}
               </button>
               <div className="h-px bg-border/40 my-1" />
             </>
@@ -913,6 +944,13 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
 
           {!hasResults ? (
             <div className="px-2 py-4 text-center typography-meta text-muted-foreground">{labels.noResults}</div>
+          ) : null}
+
+          {visibleLeadingEntry ? (
+            <>
+              {renderRow(visibleLeadingEntry, 'leading', false, currentFlatIndex++)}
+              {filteredFavorites.length > 0 || filteredRecents.length > 0 || filteredProviders.length > 0 ? <div className="h-px bg-border/40 my-1" /> : null}
+            </>
           ) : null}
 
           {filteredFavorites.length > 0 ? (

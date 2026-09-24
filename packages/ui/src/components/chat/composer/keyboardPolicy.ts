@@ -9,8 +9,11 @@ export interface EnterKeyPolicyInput {
 }
 
 export const shouldSubmitEnter = (input: EnterKeyPolicyInput): boolean => {
-    const enterSendsByDefault = !input.isMobile && !input.isDesktopExpanded;
     const isCtrlEnter = input.ctrlKey || input.metaKey;
+    if (input.isMobile) return isCtrlEnter;
+    if (input.isDesktopExpanded) return isCtrlEnter;
+
+    const enterSendsByDefault = !input.isMobile;
     if (!input.enterToSendConfigured) {
         return !input.shiftKey && (enterSendsByDefault || isCtrlEnter);
     }
