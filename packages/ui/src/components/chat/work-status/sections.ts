@@ -1,7 +1,7 @@
 import type { I18nKey } from '@/lib/i18n/messages/en';
 
 /**
- * Every section the work-status panel can render, in display order.
+ * Every section the work-status panel can render, in default display order.
  *
  * One list drives both the panel and its settings dialog, so a section cannot
  * exist in the panel without being switchable, or appear in the dialog without
@@ -16,13 +16,12 @@ export const WORK_STATUS_SECTION_IDS = [
   'usage',
   'telemetry',
   'subagents',
-  'tasks',
   'mcp',
   'pinned',
   'contextSources',
 ] as const;
 
-type WorkStatusSectionId = (typeof WORK_STATUS_SECTION_IDS)[number];
+export type WorkStatusSectionId = (typeof WORK_STATUS_SECTION_IDS)[number];
 
 export const WORK_STATUS_SECTION_LABEL_KEYS = {
   session: 'chat.workStatus.section.session',
@@ -30,7 +29,6 @@ export const WORK_STATUS_SECTION_LABEL_KEYS = {
   usage: 'chat.workStatus.section.usage',
   telemetry: 'chat.workStatus.section.telemetry',
   subagents: 'chat.workStatus.section.subagents',
-  tasks: 'chat.workStatus.section.tasks',
   mcp: 'chat.workStatus.section.mcp',
   pinned: 'chat.workStatus.section.pinned',
   contextSources: 'chat.workStatus.section.contextBreakdown',
@@ -40,6 +38,18 @@ const KNOWN_IDS = new Set<string>(WORK_STATUS_SECTION_IDS);
 
 const isWorkStatusSectionId = (value: unknown): value is WorkStatusSectionId =>
   typeof value === 'string' && KNOWN_IDS.has(value);
+
+/** Preserve chosen positions, discard obsolete ids, and append newly added sections. */
+export const sanitizeWorkStatusSectionOrder = (value: readonly string[] | null | undefined): WorkStatusSectionId[] => {
+  const ordered = new Set<WorkStatusSectionId>();
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (isWorkStatusSectionId(entry)) ordered.add(entry);
+    }
+  }
+  for (const id of WORK_STATUS_SECTION_IDS) ordered.add(id);
+  return [...ordered];
+};
 
 /**
  * Hidden sections are stored, not visible ones. Every section is on by default.
