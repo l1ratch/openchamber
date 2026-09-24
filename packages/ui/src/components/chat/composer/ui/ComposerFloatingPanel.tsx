@@ -10,6 +10,9 @@ interface ComposerFloatingPanelProps {
 }
 
 /** Shared dock for mutually exclusive BTW, queue, and suggestion panels. */
+/** Panels mounted per chat column, so the marker survives an overlap. */
+const mountedPanels = new WeakMap<HTMLElement, number>();
+
 export function ComposerFloatingPanel({ header, children, compact = false, role, ariaLabel }: ComposerFloatingPanelProps) {
     const panelRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -17,8 +20,13 @@ export function ComposerFloatingPanel({ header, children, compact = false, role,
         const panel = panelRef.current;
         const column = panel?.closest<HTMLElement>('[data-composer-bound]');
         if (!panel || !column) return;
-        // Only the floating status/navigation overlays use this offset.
-        // Transcript dimensions and scroll insets remain unchanged.
+        // Marks the column while any panel is docked above the composer, so
+        // chrome that would end up over the panel (the recap hint) can hide.
+        mountedPanels.set(column, (mountedPanels.get(column) ?? 0) + 1);
+        column.setAttribute('data-floating-panel', 'true');
+        // The floating status/navigation overlays translate up by this
+        // offset, and the transcript's tail spacer grows by it so the panel
+        // never covers the last rows.
         const update = () => {
             const gap = Number.parseFloat(getComputedStyle(panel).marginBottom) || 0;
             const clearance = `${Math.ceil(panel.getBoundingClientRect().height + gap)}px`;
@@ -32,6 +40,13 @@ export function ComposerFloatingPanel({ header, children, compact = false, role,
         return () => {
             observer?.disconnect();
             column.style.removeProperty('--chat-floating-panel-clearance');
+            const remaining = (mountedPanels.get(column) ?? 1) - 1;
+            if (remaining <= 0) {
+                mountedPanels.delete(column);
+                column.removeAttribute('data-floating-panel');
+            } else {
+                mountedPanels.set(column, remaining);
+            }
         };
     }, []);
 

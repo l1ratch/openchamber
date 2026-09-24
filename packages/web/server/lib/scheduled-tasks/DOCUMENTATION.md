@@ -69,7 +69,9 @@ in shared project config under the project write lock:
 - Claiming always writes `nextRunAt` (including `undefined`) so a past once-slot
   is cleared when there is no following occurrence.
 
-Manual `runNow` does not claim a schedule occurrence.
+Manual `runNow` does not claim a schedule occurrence. It also runs paused
+(`enabled: false`) tasks — that is the point of the button — while scheduled
+dispatches still skip disabled tasks, and completion never re-arms a paused task.
 
 ## Files
 
@@ -186,3 +188,7 @@ project write lock on every `syncProject` when the project path is known:
   - `POST /api/projects/:projectId/scheduled-tasks/:taskId/run`
   - `GET /api/openchamber/scheduled-tasks/status`
   - `GET /api/openchamber/events`
+
+The shared `/api/openchamber/events` stream also carries web notifications.
+Its connection ownership and browser capability flag stay unchanged. Delivery
+and duplicate handling are documented in `../notifications/DOCUMENTATION.md`.
