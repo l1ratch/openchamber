@@ -30,9 +30,8 @@ const PillWorkingStatus: React.FC = () => {
         : status.charAt(0).toUpperCase() + status.slice(1);
 
     return (
-        <span className="min-w-0 truncate pr-3 text-sm text-muted-foreground">
+        <span className="-ml-px min-w-0 truncate pr-3 text-sm text-muted-foreground">
             {label}
-            <span className="animate-pulse"> …</span>
         </span>
     );
 };
@@ -74,7 +73,11 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, wo
                         visible ? 'pointer-events-auto' : 'pointer-events-none',
                     )}
                 >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground">
+                    {/* flex-1 so the icon stays centred when the mobile
+                        touch-target floor widens the bare button past 32px;
+                        with the status label present it collapses back to
+                        its 32px basis. */}
+                    <span className="flex h-8 w-8 flex-1 shrink-0 basis-8 items-center justify-center text-muted-foreground">
                         <Icon name="arrow-down" className="h-4 w-4" />
                     </span>
                     {working && visible ? <PillWorkingStatus /> : null}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { animate, type AnimationPlaybackControls } from 'motion';
-import type { Part } from '@opencode-ai/sdk/v2';
+import type { Part } from '@/lib/opencode/model';
 import { cn } from '@/lib/utils';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
@@ -132,6 +132,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     // scroller) and only reaches the chat once the box sits at its top.
     const scrollBoxRef = React.useRef<HTMLElement | null>(null);
     const followBoxEndRef = React.useRef(true);
+    const lastBoxScrollTopRef = React.useRef(0);
     const touchStartYRef = React.useRef<number | null>(null);
     const releaseBoxFollow = React.useCallback(() => {
         followBoxEndRef.current = false;
@@ -152,7 +153,14 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const handleBoxScroll = React.useCallback((event: React.UIEvent<HTMLElement>) => {
         const node = event.currentTarget;
         const distanceToEnd = node.scrollHeight - node.clientHeight - node.scrollTop;
-        followBoxEndRef.current = distanceToEnd <= 2;
+        // A queued automatic scroll can arrive after markdown has grown again.
+        // Only upward movement releases follow; a larger bottom gap does not.
+        if (distanceToEnd <= 2) {
+            followBoxEndRef.current = true;
+        } else if (node.scrollTop < lastBoxScrollTopRef.current - 1) {
+            followBoxEndRef.current = false;
+        }
+        lastBoxScrollTopRef.current = node.scrollTop;
     }, []);
 
     React.useEffect(() => {
@@ -166,6 +174,8 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
             if (!followBoxEndRef.current) return;
             const end = node.scrollHeight - node.clientHeight;
             if (end - node.scrollTop > 1) node.scrollTop = end;
+            // Record the actual (possibly clamped) position before scroll fires.
+            lastBoxScrollTopRef.current = node.scrollTop;
         };
         // Growth lands asynchronously (markdown commits off the render pass),
         // so the content box is observed rather than the text prop.
@@ -407,7 +417,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                     {!isStreaming && !isExpanded && summary ? (
                         <span
                             className={cn('min-w-0 truncate', TOOL_ROW_DESCRIPTION_CLASS)}
-                            style={{ color: 'var(--tools-description)', opacity: 0.8 }}
+                            style={{ color: 'var(--tools-description)' }}
                             title={summary}
                         >
                             {summary}
