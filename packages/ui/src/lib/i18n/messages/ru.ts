@@ -11,7 +11,6 @@ const contextualCorrections = {
   'settings.providers.page.openCodeGo.deleteFailed': 'Не удалось удалить учётные данные OpenCode Go.',
   'settings.view.home.cards.providers.description': 'Подключение моделей и учётных данных',
   'settings.openchamber.tunnel.field.provider': 'Провайдер',
-  'settings.agents.page.permissionsEditor.sessionRulesInfo': 'Правила, предоставленные во время активных сессий, например ответы «всегда разрешать». Они действуют сейчас, но не входят в сохранённую конфигурацию и исчезнут после перезапуска.',
   'settings.agents.page.field.variantTooltip': 'Управляет глубиной рассуждений этого агента. Значение сопоставляется с параметрами конкретного провайдера, например уровнем рассуждений OpenAI.',
   'settings.usage.page.empty.selectProvider': 'Выберите провайдера, чтобы просмотреть сведения об использовании.',
   'settings.usage.page.state.providerNotConfiguredTitle': 'Провайдер не настроен',
@@ -37,15 +36,12 @@ const contextualCorrections = {
   'settings.providers.page.toast.providerSourcesLoadFailed': 'Не удалось загрузить источники провайдера.',
   'settings.providers.page.toast.customProviderSaveFailed': 'Не удалось сохранить пользовательского провайдера.',
   'settings.mcp.page.toast.createServerBeforeLiveActions': 'Сначала создайте сервер, чтобы выполнять действия в реальном времени.',
-  'settings.mcp.page.toast.saveBeforeLiveActions': 'Сначала сохраните изменения, чтобы выполнять действия в реальном времени.',
   'settings.openchamber.visual.option.chatRenderMode.live.label': 'В реальном времени',
   'settings.openchamber.visual.option.chatRenderMode.live.description': 'Показывать текст ассистента и результаты инструментов по мере их поступления.',
   'memoryDebugPanel.common.live': 'В реальном времени',
   'chat.chatInput.terminalContextRemove': 'Удалить контекст терминала',
   'chat.chatInput.prCommentContextRemove': 'Удалить контекст комментариев PR',
   'chat.chatInput.prCheckContextRemove': 'Удалить контекст проверок PR',
-  'settings.view.pendingRestart.applying': 'Перезапуск...',
-  'settings.view.pendingRestart.saved': 'Сохранено. Перезапустите OpenCode для применения изменений.',
 } satisfies Partial<Record<I18nKey, string>>;
 
 export const dict = {
