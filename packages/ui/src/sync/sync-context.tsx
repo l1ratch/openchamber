@@ -3038,6 +3038,16 @@ export function useSessionStatus(sessionID: string, directory?: string) {
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** Whether this directory has received a successful authoritative status snapshot. */
+export function useSessionStatusSnapshotReady(directory?: string): boolean {
+  const store = useDirectoryStore(directory)
+  const getSnapshot = useCallback(() => store.getState().sessionStatusReady === true, [store])
+  const subscribe = useCallback((notify: () => void) => store.subscribe((state, previous) => {
+    if (state.sessionStatusReady !== previous.sessionStatusReady) notify()
+  }), [store])
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
 /** Get permissions for a specific session */
 export function useSessionPermissions(sessionID: string, directory?: string, options?: { bootstrap?: boolean }) {
   const store = useDirectoryStore(directory, options)

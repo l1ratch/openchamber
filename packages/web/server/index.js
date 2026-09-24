@@ -129,6 +129,7 @@ import { createOpenChamberSessionService } from './lib/openchamber-sessions/rout
 import { createSessionMetadataStore, createOpenCodeSessionMetadata } from './lib/openchamber-sessions/session-metadata-store.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
+import { createPluginNotificationEmitter } from './lib/notifications/emit-route.js';
 import { OpenChamberControlError } from './lib/openchamber-control/error.js';
 import { createFileOpenRequester } from './lib/openchamber-control/file-open.js';
 import { applyConnectAttemptTimeout } from './lib/network-defaults.js';
@@ -1563,6 +1564,12 @@ const fileOpenRequester = createFileOpenRequester({
   },
 });
 
+const pluginNotificationEmitter = createPluginNotificationEmitter({
+  readSettingsFromDiskMigrated,
+  emitDesktopNotification,
+  broadcastUiNotification,
+});
+
 const openChamberControlService = createOpenChamberControlService({
   readSettingsFromDiskMigrated,
   sanitizeProjects,
@@ -1573,6 +1580,15 @@ const openChamberControlService = createOpenChamberControlService({
   scheduledTaskService,
   browserControl: browserControlRouter,
   fileOpen: fileOpenRequester,
+  // The tool is off by default; a plugin generated before it was switched off
+  // must not keep paging the user.
+  notifyUser: async (input) => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => null);
+    if (settings?.agentNotifyToolEnabled !== true) {
+      return { status: 403, body: { error: 'The notify tool is turned off in OpenChamber settings' } };
+    }
+    return pluginNotificationEmitter.emit(input);
+  },
   agentMemoryActions: createAgentMemoryActions({
     agentMemoryRuntime,
     createError: (message, status) => new OpenChamberControlError(message, status),
@@ -1997,6 +2013,7 @@ async function main(options = {}) {
     isUiVisible,
     getUiNotificationClients: () => uiNotificationClients,
     writeSseEvent,
+    pluginNotificationEmitter,
     sessionRuntime,
     setPushInitialized,
     fs,
@@ -2107,6 +2124,7 @@ async function main(options = {}) {
       guestSurfaceRuntime?.endForGuest(event.guestId);
       return browserControlRouter.handleGuestDeactivated(event);
     },
+    surfaceViewerHeaders: (guestId, viewerId) => guestSurfaceRuntime?.viewerHeaders(guestId, viewerId) ?? null,
     builtInExtensionsDir: options.builtInExtensionsDir,
     openchamberUserConfigRoot: OPENCHAMBER_USER_CONFIG_ROOT,
     managedChatsRoot: OPENCHAMBER_CHATS_DIR,

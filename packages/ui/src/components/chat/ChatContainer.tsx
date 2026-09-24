@@ -48,6 +48,8 @@ import { useChatTimelineScroll, type TimelineListHandle } from '@/hooks/useChatT
 import { useChatTimelineController } from './hooks/useChatTimelineController';
 import { TimelineDialog } from './TimelineDialog';
 import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
+import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
+import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
 import { useDeviceInfo } from '@/lib/device';
 import { Button } from '@/components/ui/button';
@@ -1171,6 +1173,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     React.useEffect(() => {
         activeTurnChangeRef.current = timelineController.handleActiveTurnChange;
     }, [timelineController.handleActiveTurnChange]);
+    const chatQuoteHighlights = useChatQuoteHighlightStore();
 
     const navigation = useChatTurnNavigation({
         sessionId: currentSessionId,
@@ -1188,7 +1191,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }, [navigation]);
     const canLoadEarlierPrompts = timelineController.historySignals.canLoadEarlier;
     const showPromptNavigator = !isMobile
-        && !isVSCode
         && !isDesktopExpandedInput
         && promptNavigatorEnabled
         && timelineController.turnIds.length >= 2;
@@ -1597,6 +1599,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 		{/* One mobile comment controller per column: selections in this column
 		    comment into this column's composer, never a sibling's. */}
 		<MobileCommentComposerContext.Provider value={mobileCommentComposer}>
+		<ChatQuoteHighlightContext.Provider value={chatQuoteHighlights}>
+		<ChatQuoteHighlightLayer
+			store={chatQuoteHighlights}
+			scrollNode={scrollNode}
+			scrollToMessage={timelineController.scrollToMessage}
+		/>
         <div
             data-composer-bound
             className={cn(
@@ -1721,6 +1729,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 onLoadEarlier={handleLoadOlderClick}
             />
         </div>
+        </ChatQuoteHighlightContext.Provider>
         </MobileCommentComposerContext.Provider>
         </ChatColumnSessionContext.Provider>
          </div>

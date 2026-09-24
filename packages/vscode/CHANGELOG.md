@@ -1,3 +1,33 @@
+## [2.0.1] - 2026-09-24
+
+### New
+
+- **Diff: file tree mode.** A toolbar toggle turns the diff view into a file tree with one file open at a time.
+- **Chat: comments stay on the reply.** Quoted text stays highlighted in the reply, and you can edit or remove its comment from there.
+- Chat: the prompt navigator is available in the extension.
+- **Chat: `/fork` with a message.** Type `/fork your message` to branch the session from its last finished reply and send the message into the new session right away.
+
+### Improvements
+
+- Git: the changes tree reads like a real tree, with collapsible folders and file names only.
+- Chat: long code blocks stay smooth while they stream (thanks to @deatheros).
+- Models: the model info panel shows for models from custom providers.
+- Agents: pickers show an agent's display name.
+- Settings/MCP: Code Mode has a Default choice that lets OpenCode decide per server.
+
+### Fixes
+
+- **Skills:** starting a message with `/skill-name` runs the skill again, no more "Command not found" error (thanks to @XiaChuerwu).
+- **Diff view:** the left side of an edit diff keeps the file's indentation.
+- Skills: Settings/Skills lists every skill OpenCode has, and built-in skills stay read-only (thanks to @aiiibolo and @hiro-nikaitou).
+- Chat: `@name` handles and emails in a message no longer turn into missing file attachments that failed the whole message (thanks to @hdp01).
+- Settings/Providers: editing a custom provider keeps its protocol, its API key variable and its reasoning levels as you configured them.
+- Chat: subagent rows show live activity again when you open a session mid-run.
+- Chat: the suggested next message shows up again after a reply.
+- Chat: file mentions with spaces in the path attach the whole file.
+- Chat: clicking a file link in a reply opens the file (thanks to @aiiibolo).
+- Providers: GitHub Copilot and other known providers show their own logo (thanks to @aiiibolo).
+
 ## [2.0.0] - 2026-09-23
 
 ### New

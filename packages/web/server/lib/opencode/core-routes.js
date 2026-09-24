@@ -94,6 +94,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
       'api.health.v1',
       'api.runtime-url.v1',
       'api.raw-file.v1',
+      'api.notifications.emit.v1',
       'realtime.sse.v1',
       'realtime.websocket.global-events.v1',
       'terminal.websocket.v1',
