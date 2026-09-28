@@ -13,7 +13,6 @@ import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useSkillsCatalogStore } from '@/stores/useSkillsCatalogStore';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
@@ -23,16 +22,14 @@ import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
 import { WebSearchPage } from '@/components/sections/websearch/WebSearchPage';
 import { CommandsSidebar } from '@/components/sections/commands/CommandsSidebar';
 import { CommandsPage } from '@/components/sections/commands/CommandsPage';
-import { McpSidebar } from '@/components/sections/mcp/McpSidebar';
 import { McpPage } from '@/components/sections/mcp/McpPage';
-import { PluginsSidebar, PluginsPage } from '@/components/sections/plugins';
+import { PluginsPage } from '@/components/sections/plugins';
 import { usePluginsStore } from '@/stores/usePluginsStore';
 import { SkillsSidebar } from '@/components/sections/skills/SkillsSidebar';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
-import { ProvidersSidebar } from '@/components/sections/providers/ProvidersSidebar';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { UsageSidebar } from '@/components/sections/usage/UsageSidebar';
 import { UsagePage } from '@/components/sections/usage/UsagePage';
@@ -53,7 +50,6 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopLocalOriginActive, isDesktopShell, isVSCodeRuntime, isWebRuntime } from '@/lib/desktop';
-import { isWindowsArm64 as isWindowsArm64Platform } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import { McpIcon } from '@/components/icons/McpIcon';
@@ -72,6 +68,8 @@ import { buildSettingsSearchResults, type SettingsSearchResult } from '@/lib/set
 const SETTINGS_NAV_WIDTH = 256;
 const SETTINGS_SPLIT_SIDEBAR_WIDTH = 280;
 const SETTINGS_DETAIL_HISTORY_KEY = '__openchamberSettingsDetail';
+/** How long (in frames, ~0.5 s) a search result or a link waits for its item to render. */
+const PENDING_ITEM_MAX_FRAMES = 30;
 
 type MobileStage = 'nav' | 'page-sidebar' | 'page-content';
 type SettingsDetailHistoryEntry = {
@@ -128,8 +126,6 @@ const pageOrder: SettingsPageSlug[] = [
 ];
 
 const NAV_GROUP_ORDER = ['general', 'projects', 'opencode', 'content'] as const;
-
-const ADD_PROVIDER_SETTINGS_ID = '__add_provider__';
 
 function buildRuntimeContext(isDesktop: boolean, isMobile: boolean, routingAvailable: boolean): SettingsRuntimeContext {
   const isVSCode = isVSCodeRuntime();
@@ -241,7 +237,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     return isDesktopShell() && typeof window !== 'undefined'
       && (window as unknown as { __OPENCHAMBER_PLATFORM__?: string }).__OPENCHAMBER_PLATFORM__ === 'linux';
   }, []);
-  const isWindowsArm64 = React.useMemo(() => isWindowsArm64Platform(), []);
 
   // keep platform check available for future window chrome tweaks
 
@@ -397,12 +392,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const settingsSearchResults = React.useMemo(() => {
     return buildSettingsSearchResults({
       query: settingsSearchQuery,
-      runtimeCtx: { ...runtimeCtx, isDesktopLocalOrigin, isMac, isWindows, isLinux, isWindowsArm64 },
+      runtimeCtx: { ...runtimeCtx, isDesktopLocalOrigin, isMac, isWindows, isLinux },
       visiblePageSlugs,
       t,
       getPageTitle,
     });
-  }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, t, visiblePageSlugs]);
+  }, [getPageTitle, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, t, visiblePageSlugs]);
 
   const prepareSettingsSearchTarget = React.useCallback((result: SettingsSearchResult): string => {
     if (result.id.startsWith('agents.')) {
@@ -443,7 +438,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         timeoutStartup: '',
         timeoutCatalog: '',
         timeoutExecution: '',
-        codemode: true,
+        codemode: 'default',
         disabled: false,
       });
       store.setSelectedMcp(name);
@@ -467,7 +462,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     }
 
     if (result.id === 'providers.connect') {
-      useConfigStore.getState().setSelectedProvider(ADD_PROVIDER_SETTINGS_ID);
+      useUIStore.getState().setSettingsProvidersConnectRequested(true);
+    }
+
+    if (result.id === 'providers.classification') {
+      useUIStore.getState().setSettingsProvidersClassificationRequested(true);
     }
 
     if (result.id === 'plugins.create') {
@@ -566,14 +565,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     }
   }, [openSearchResult, settingsSearchQuery, settingsSearchResults]);
 
+  // Links inside Settings (e.g. from a setting's explanation) travel the same
+  // road as a search result: open the page, then reveal the item.
+  const settingsJumpRequest = useUIStore((state) => state.settingsJumpRequest);
+  React.useEffect(() => {
+    if (!settingsJumpRequest) {
+      return;
+    }
+    useUIStore.getState().clearSettingsJumpRequest();
+    setPendingSearchItemId(settingsJumpRequest.itemId);
+    openPage(resolveSettingsSlug(settingsJumpRequest.page));
+    if (isMobile) {
+      setMobileStage('page-content');
+    }
+  }, [isMobile, openPage, settingsJumpRequest]);
+
   React.useEffect(() => {
     const targetId = pendingSearchItemId;
     if (!targetId) {
       return;
     }
 
+    // A page that loads its content (an agent's details, a provider's page)
+    // renders the item a few frames late, so look for it for a short while.
     let cancelled = false;
-    const frame = window.requestAnimationFrame(() => {
+    let attempts = 0;
+    let frame = 0;
+    const reveal = () => {
       if (cancelled) {
         return;
       }
@@ -582,6 +600,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         : targetId.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
       const target = containerRef.current?.querySelector<HTMLElement>(`[data-settings-item="${escapedId}"]`);
       if (!target) {
+        attempts += 1;
+        if (attempts < PENDING_ITEM_MAX_FRAMES) frame = window.requestAnimationFrame(reveal);
         return;
       }
       setPendingSearchItemId(null);
@@ -590,7 +610,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       window.setTimeout(() => {
         target.removeAttribute('data-settings-search-highlight');
       }, 1600);
-    });
+    };
+    frame = window.requestAnimationFrame(reveal);
 
     return () => {
       cancelled = true;
@@ -617,14 +638,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <AgentsSidebar onItemSelect={opts.onItemSelect} />;
       case 'commands':
         return <CommandsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'mcp':
-        return <McpSidebar onItemSelect={opts.onItemSelect} />;
-      case 'plugins':
-        return <PluginsSidebar onItemSelect={opts.onItemSelect} />;
       case 'skills.installed':
         return <SkillsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'providers':
-        return <ProvidersSidebar onItemSelect={opts.onItemSelect} />;
       case 'usage':
         return <UsageSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':

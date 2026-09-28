@@ -87,8 +87,16 @@ model context is small. Page/count bounds are not a network-byte quota.
 
 ## Generation and lifecycle
 
-1. The server's existing global event fan-out calls `processPayload`. An idle
-   event arms the 60-second quiet window. No history scan or startup backfill runs.
+1. The server's existing global event fan-out calls `processPayload`. At an
+   idle event the runtime first asks the injected `evaluateTurn` (the
+   session-work runtime, `../session-work/DOCUMENTATION.md`): one Jev call says
+   which enabled fields are worth the Small Model. It then arms the 60-second
+   quiet window for those fields only, and arms nothing when Jev ruled both out.
+   An unknown answer (no Jev, a failure) keeps every enabled field, so without
+   Jev nothing changes. A newer event drops a pending answer. A session that
+   `../session-lineage.js` knows to be a subsession arms nothing at all: no
+   gate, no timer, no read. No history scan or
+   startup backfill runs.
 2. Busy/retry events and newly created user messages clear pending work and
    abort in-flight reads/generation. Re-emitted old user updates do not cancel it.
 3. One generation runs per session. If a newer quiet window expires while an
@@ -117,17 +125,31 @@ No failed session blocks another session.
 ## Settings and consumers
 
 `sessionRecapEnabled` and `sessionSuggestionEnabled` default on and are checked
-before work and before writing. With both off there are no reads, model calls,
+before work and before writing. The Jev gate is a cost filter under these same
+switches, not a setting of its own: it reads the same three turns as the recap,
+so a recap still follows a closing "thanks" after real work. With both off there are no reads, model calls,
 or writes. With one on, the shared recent context is still available, but only
 that field is requested. An empty suggestion does not erase a valid recap.
 
-Clients render an assist only while its `forMessageID` is the last message and
-the session is idle. A new message invalidates it without clearing writes.
+Freshness has one rule, `getCurrentSessionAssist` in
+`packages/ui/src/lib/sessionAssistMetadata.ts`, computed from the session
+record alone so the chat and the sidebar row always agree: the payload is
+current while `generatedAt >= session.time.idle` and the session is not
+reverted. OpenCode moves `time.idle` at every turn end, succeeded or failed.
+Do not compare `forMessageID` with the last loaded message: in v2 the newest
+record is the turn's `idle` marker or a switch record, never the answer.
+When a session turns busy, the runtime also deletes the assist it wrote
+(`persistSessionAssist(id, dir, null)`), so stored state goes stale only for
+payloads written by an earlier process; the `time.idle` rule retires those.
 
-- `packages/ui/src/lib/sessionAssistMetadata.ts` parses the payload.
-- `packages/ui/src/hooks/useSessionAssist.ts` owns freshness/settings gating.
+- `packages/ui/src/lib/sessionAssistMetadata.ts` parses the payload and owns freshness.
+- `packages/ui/src/hooks/useSessionAssist.ts` adds live-status and settings gating.
 - `SessionRecapSpacer` shows the reminder in the reserved gap under the reply.
 - `SessionSuggestionChip` fills the composer; it never sends automatically.
+- Sidebar rows (`SessionNodeItem`, Projects view) show the current recap in
+  the whole-row tooltip under the same freshness rule, hidden while a turn runs
+  and when `sessionRecapEnabled` is off. The sidebar no longer marks open
+  suggestions; the "In work" block is the sidebar's attention signal.
 
 Web, Electron, hosted mobile, and Capacitor use the server watcher. VS Code's
 extension-only runtime does not generate assists; shared UI can render payloads

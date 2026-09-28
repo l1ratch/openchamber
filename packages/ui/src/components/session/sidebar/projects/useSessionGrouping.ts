@@ -2,6 +2,7 @@ import { matchesRankQuery } from '@/lib/search/fuzzySearch';
 import React from 'react';
 import type { Session } from '@/lib/opencode/model';
 import type { WorktreeMetadata } from '@/types/worktree';
+import type { WorktreeSortOrder } from '@/stores/useSessionDisplayStore';
 import type { SessionGroup, SessionNode } from '../types';
 import {
   dedupeSessionsById,
@@ -15,6 +16,7 @@ import { useI18n } from '@/lib/i18n';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { getWorktreeFirstSeenAt } from './worktreeFirstSeen';
 import { buildProjectWorktreeIndex } from '../worktreeIndex';
+import type { SpaceMark } from '@/lib/spaces/spaces-store';
 
 type Args = {
   homeDirectory: string | null;
@@ -23,7 +25,16 @@ type Args = {
   sessionOrderRanks: ReadonlyMap<string, number>;
   gitBranches: Map<string, string | null>;
   isVSCode: boolean;
+  worktreeSortOrder: WorktreeSortOrder;
   sessionOwners?: ReadonlyMap<string, { scopeDirectory: string }>;
+  /** The isolated spaces of each project, by the project's normalized root. */
+  spacesByProject?: ReadonlyMap<string, readonly SpaceMark[]>;
+  /**
+   * Members of active multi-runs. They list under the project root, where the
+   * row model collapses them into one run row, instead of each lane's worktree
+   * forming its own group.
+   */
+  runKeyBySessionId?: ReadonlyMap<string, string>;
 };
 
 const isArchivedSession = (session: Session): boolean => Boolean(session.time?.archived);
@@ -102,6 +113,13 @@ export const useSessionGrouping = (args: Args) => {
       });
 
       const worktreeByPath = buildProjectWorktreeIndex(availableWorktrees, normalizedProjectRoot);
+      // A space's group is keyed by the project's path inside the space, as its sessions are owned.
+      const projectSpaces = (normalizedProjectRoot && !args.isVSCode ? args.spacesByProject?.get(normalizedProjectRoot) : undefined) ?? [];
+      const spaceByDirectory = new Map<string, SpaceMark>();
+      for (const space of projectSpaces) {
+        const directory = normalizePath(space.directory);
+        if (directory) spaceByDirectory.set(directory, space);
+      }
 
       const getSessionWorktree = (session: Session): WorktreeMetadata | null => {
         const sessionDirectory = normalizePath((session as Session & { directory?: string | null }).directory ?? null);
@@ -156,10 +174,11 @@ export const useSessionGrouping = (args: Args) => {
         // Worktrees aren't registered in VS Code, so the desktop directory-match
         // below would otherwise dump these sessions into the archived bucket.
         if (args.isVSCode) return normalizedProjectRoot ?? '__project_root__';
+        if (args.runKeyBySessionId?.has(session.id)) return normalizedProjectRoot ?? '__project_root__';
         const resolvedScope = args.sessionOwners?.get(session.id)?.scopeDirectory;
         if (resolvedScope) {
           if (resolvedScope === normalizedProjectRoot) return normalizedProjectRoot ?? '__project_root__';
-          if (worktreeByPath.has(resolvedScope)) return resolvedScope;
+          if (worktreeByPath.has(resolvedScope) || spaceByDirectory.has(resolvedScope)) return resolvedScope;
         }
         const metadataPath = normalizePath(args.worktreeMetadata.get(session.id)?.path ?? null);
         const normalizedDir = metadataPath ?? resolveGlobalSessionDirectory(session);
@@ -213,7 +232,15 @@ export const useSessionGrouping = (args: Args) => {
       });
 
       // Sort populated worktrees by shared session activity, then empty ones by label.
-      const sortedWorktrees = [...availableWorktrees].sort((a, b) => {
+      const compareWorktreeLabels = (a: WorktreeMetadata, b: WorktreeMetadata): number => {
+        const aLabel = (a.label || a.branch || a.name || a.path || '').toLowerCase();
+        const bLabel = (b.label || b.branch || b.name || b.path || '').toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      };
+      // Stable orders never look at session activity, so running a session
+      // cannot move its worktree. Manual starts alphabetical; the saved drag
+      // order is applied on top by useGroupOrdering.
+      const sortedWorktrees = args.worktreeSortOrder !== 'recent' ? [...availableWorktrees].sort(compareWorktreeLabels) : [...availableWorktrees].sort((a, b) => {
         const aDir = normalizePath(a.path) ?? a.path;
         const bDir = normalizePath(b.path) ?? b.path;
         const aInfo = worktreeActivityInfo.get(aDir) ?? { hasActiveSession: false, lastUpdatedAt: 0 };
@@ -239,9 +266,7 @@ export const useSessionGrouping = (args: Args) => {
         }
 
         // Fourth priority: sort by label (asc)
-        const aLabel = (a.label || a.branch || a.name || a.path || '').toLowerCase();
-        const bLabel = (b.label || b.branch || b.name || b.path || '').toLowerCase();
-        return aLabel.localeCompare(bLabel);
+        return compareWorktreeLabels(a, b);
       });
 
       // VS Code groups strictly by open workspace — no per-worktree subgroups.
@@ -271,6 +296,24 @@ export const useSessionGrouping = (args: Args) => {
         });
       });
 
+      // One group per space, after the worktrees, in the host's order; a space with no session
+      // yet is still a group, so the user sees it is there.
+      for (const [directory, space] of spaceByDirectory) {
+        groups.push({
+          id: `space:${space.id}`,
+          label: space.name || t('sessions.sidebar.grouping.spaceUnnamed'),
+          branch: null,
+          description: null,
+          isMain: false,
+          isArchivedBucket: false,
+          worktree: null,
+          space,
+          directory,
+          folderScopeKey: directory,
+          sessions: groupedNodes.get(directory) ?? [],
+        });
+      }
+
       const archivedSessions = groupedNodes.get(archivedKey) ?? [];
       if (archivedSessions.length > 0) {
         groups.push({
@@ -289,7 +332,7 @@ export const useSessionGrouping = (args: Args) => {
 
       return groups;
     },
-    [args.homeDirectory, args.worktreeMetadata, args.sessionOrderRanks, args.isVSCode, args.sessionOwners, t],
+    [args.homeDirectory, args.worktreeMetadata, args.sessionOrderRanks, args.isVSCode, args.worktreeSortOrder, args.sessionOwners, args.spacesByProject, args.runKeyBySessionId, t],
   );
 
   return {
