@@ -333,8 +333,10 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
         }
       }
 
+      // OpenCode 2 keeps credentials in its own store, out of this server's
+      // sight, so the form states whether one exists or follows this write.
       const { getProviderAuth } = await getAuthLibrary();
-      const hasStoredAuth = Boolean(getProviderAuth(providerID));
+      const hasStoredAuth = req.body?.hasCredential === true || Boolean(getProviderAuth(providerID));
       const upsertResult = upsertProviderConfig(providerID, config, directory, scope, { hasStoredAuth });
 
       return res.json({
@@ -543,6 +545,24 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
 
       if (content.length > MAX_BEHAVIOR_PROMPT_SIZE) {
         return res.status(413).json({ error: `Content exceeds maximum size of ${MAX_BEHAVIOR_PROMPT_SIZE} bytes` });
+      }
+
+      // `expectedContent` is what the editor loaded (null: no file). A file
+      // changed on disk since then is not overwritten with the stale copy.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'expectedContent')) {
+        const expected = req.body.expectedContent;
+        let current = null;
+        try {
+          current = await fs.promises.readFile(AGENTS_MD_PATH, 'utf8');
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+        if (current !== expected) {
+          return res.status(409).json({
+            error: 'AGENTS.md changed on disk since it was loaded',
+            code: 'AGENTS_MD_CONFLICT',
+          });
+        }
       }
 
       // Ensure parent directory exists

@@ -1,4 +1,5 @@
 import type { I18nKey } from '@/lib/i18n/store';
+import { ISOLATED_SPACES_RELEASED } from '@/lib/spaces/release';
 import { useUIStore } from '@/stores/useUIStore';
 import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
 import { getSettingsPageMeta } from './metadata';
@@ -446,6 +447,37 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['warming', 'warm', 'cache', 'prompt cache', 'keep-alive', 'idle'],
   },
   {
+    id: 'sessions.permission-default',
+    page: 'sessions',
+    titleKey: 'settings.sessions.permissions.defaultMode',
+    descriptionKey: 'settings.sessions.permissions.defaultModeInfo',
+    keywords: ['permissions', 'auto-accept', 'accept', 'safety net', 'ask', 'shield', 'approval', 'new session'],
+    // The server writes the default onto new sessions; VS Code has none.
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'sessions.work',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.sessionWork.title',
+    descriptionKey: 'settings.openchamber.sessionWork.info',
+    keywords: ['in work', 'in progress', 'track', 'done', 'inbox', 'sidebar', 'jev'],
+  },
+  {
+    id: 'sessions.work-enabled',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.sessionWork.field.enabled',
+    keywords: ['in work', 'in progress', 'track', 'done', 'sidebar'],
+  },
+  {
+    id: 'sessions.work-auto-open',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.sessionWork.field.autoOpen',
+    descriptionKey: 'settings.openchamber.sessionWork.field.autoOpenInfo',
+    keywords: ['in work', 'automatic', 'jev', 'classification', 'track'],
+    // Jev runs on the OpenChamber server; VS Code has only the manual part.
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'sessions.small-model',
     page: 'sessions',
     titleKey: 'settings.openchamber.defaults.smallModel.title',
@@ -602,6 +634,16 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'general.isolated-spaces',
+    page: 'general',
+    titleKey: 'settings.openchamber.spaces.field.enabled',
+    descriptionKey: 'settings.openchamber.spaces.field.enabledInfo',
+    keywords: ['isolated', 'space', 'spaces', 'container', 'docker', 'sandbox', 'agent'],
+    // Never in VS Code: the feature has no entry point there (decision 16 of the design).
+    // Hidden from everyone until the feature's first release, like the row itself.
+    isAvailable: (ctx) => !ctx.isVSCode && ISOLATED_SPACES_RELEASED,
+  },
+  {
     id: 'sessions.agent-memory-tool',
     page: 'general',
     titleKey: 'settings.openchamber.tools.field.agentMemoryTool',
@@ -610,14 +652,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     // Unreleased: searching for a setting that is not rendered would take the
     // user to an empty spot on the page.
     isAvailable: (ctx) => !ctx.isVSCode && useUIStore.getState().agentMemoryFeatureAvailable,
-  },
-  {
-    id: 'routing.token',
-    page: 'routing',
-    titleKey: 'settings.routing.token.label',
-    descriptionKey: 'settings.routing.token.info',
-    keywords: ['jev', 'typesafe', 'api key', 'token', 'routing', 'zen', 'free'],
-    isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable,
   },
   {
     id: 'routing.enabled',
@@ -633,14 +667,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.routing.auto.fallbackModel',
     descriptionKey: 'settings.routing.auto.fallbackModelInfo',
     keywords: ['fallback', 'default', 'model', 'routing'],
-    isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable,
-  },
-  {
-    id: 'routing.safety-enabled',
-    page: 'routing',
-    titleKey: 'settings.routing.safety.enable',
-    descriptionKey: 'settings.routing.safety.enableInfo',
-    keywords: ['safety net', 'auto-accept', 'permissions', 'destructive', 'hold'],
     isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable,
   },
   {
@@ -968,6 +994,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['add provider', 'connect provider', 'credentials'],
   },
   {
+    // Opens the Classification providers sub-page (SettingsView sets the request).
+    id: 'providers.classification',
+    page: 'providers',
+    titleKey: 'settings.classification.page.title',
+    descriptionKey: 'settings.classification.page.description',
+    keywords: ['jev', 'typesafe', 'zen', 'api key', 'token', 'safety net', 'auto', 'routing', 'classification', 'promotion'],
+    isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable,
+  },
+  {
     id: 'providers.custom',
     page: 'providers',
     titleKey: 'settings.providers.page.custom.title',
@@ -977,14 +1012,8 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'providers.auth',
     page: 'providers',
-    titleKey: 'settings.providers.page.auth.title',
-    keywords: ['api key', 'oauth', 'credentials'],
-  },
-  {
-    id: 'providers.connection-details',
-    page: 'providers',
-    titleKey: 'settings.providers.page.connectionDetails.title',
-    keywords: ['config', 'source', 'disconnect'],
+    titleKey: 'settings.providers.accounts.title',
+    keywords: ['api key', 'oauth', 'credentials', 'accounts', 'switch account', 'disconnect'],
   },
   {
     id: 'providers.models',
@@ -1191,6 +1220,22 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.integrations.linear.mapping.defaultProject',
     descriptionKey: 'settings.integrations.linear.mapping.defaultProject.info',
     keywords: ['linear', 'project', 'team', 'map', 'workspace', 'directory'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'integrations.third-party',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.title',
+    descriptionKey: 'settings.integrations.thirdParty.info',
+    keywords: ['plugin', 'provider', 'install', 'update', 'remove', 'subscription'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'integrations.third-party.opencode-claude',
+    page: 'integrations',
+    titleKey: 'settings.integrations.thirdParty.opencodeClaude.name',
+    descriptionKey: 'settings.integrations.thirdParty.opencodeClaude.description',
+    keywords: ['claude', 'anthropic', 'claude code', 'pro', 'max', 'agent sdk', '@openchamber/opencode-claude'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
