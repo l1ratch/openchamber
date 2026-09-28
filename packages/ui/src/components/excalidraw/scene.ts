@@ -10,6 +10,7 @@ const EXCALIDRAW_LANG_CODE = {
   ko: 'ko-KR',
   pl: 'pl-PL',
   'pt-BR': 'pt-BR',
+  ru: 'ru-RU',
   tr: 'tr-TR',
   uk: 'uk-UA',
   'zh-CN': 'zh-CN',
